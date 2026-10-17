@@ -406,17 +406,21 @@
 
             // Helmet lamp: lights the digits and the rock it points at, and the dust floating in its beam
             const lamp = { x: (BODY_X + LAMP.c + lean + 0.5) * CW, y: (BODY_TOP + LAMP.r + 0.5) * CH };
-            const toTarget = (Math.atan2(-(TY - lamp.y), TX - lamp.x) / RAD + 360) % 360;
-            const beta = toTarget - 5 - 10 * Math.sin(Math.PI * seg(p, 0.15, 0.85));
-            const HALF = 19;
-            const LEN = 26;
+            // Aim the cone so its edges frame the whole clock, with a small sway
+            const angTo = (x, y) => (Math.atan2(-(y - lamp.y), x - lamp.x) / RAD + 360) % 360;
+            const corners = [DX, DIGITS_END].flatMap((c) => [DIGIT_TOP, DIGIT_TOP + 5].map((r) => angTo(c * CW, r * CH)));
+            const lo = Math.min(...corners);
+            const hi = Math.max(...corners);
+            const beta = (lo + hi) / 2 - 2 * Math.sin(Math.PI * seg(p, 0.15, 0.85));
+            const HALF = (hi - lo) / 2 + 9;
+            const LEN = Math.hypot(lamp.x - DX * CW, lamp.y - (DIGIT_TOP + 5) * CH) + 6;
             const light = (pt) => {
                 const dx = pt.x - lamp.x;
                 const dy = pt.y - lamp.y;
                 const d = Math.hypot(dx, dy);
                 const ang = (Math.atan2(-dy, dx) / RAD + 360) % 360;
                 const off = Math.abs(((ang - beta + 540) % 360) - 180);
-                return d > LEN || off > HALF ? 0 : (1 - d / LEN) * (1 - off / HALF);
+                return d > LEN || off > HALF ? 0 : (1 - 0.7 * d / LEN) * (1 - off / HALF);
             };
             grid.forEach((row, r) =>
                 row.forEach((cell, c) => {
@@ -479,7 +483,7 @@
                 const a = dirOf(beta - half);
                 const b = dirOf(beta + half);
                 beam.style.clipPath = `polygon(${em(lamp.x)} ${em(lamp.y)}, ${em(lamp.x + a.x * len)} ${em(lamp.y + a.y * len)}, ${em(lamp.x + b.x * len)} ${em(lamp.y + b.y * len)})`;
-                beam.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,205,120,0.30), rgba(255,170,70,0.10) 11em, rgba(255,150,40,0) 26em)`;
+                beam.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,205,120,0.30), rgba(255,170,70,0.12) 16em, rgba(255,150,40,0) ${em(len)})`;
                 halo.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,235,180,0.45), rgba(255,200,120,0) 1.6em)`;
                 stage.style.transform = p < 0.04 ? 'translate(-0.08em, 0.05em)' : p < 0.08 ? 'translate(0.05em, -0.03em)' : '';
                 requestAnimationFrame(tick);
