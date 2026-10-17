@@ -108,6 +108,18 @@
             ':': ['   ', ' o ', '   ', ' o ', '   '],
         };
 
+        // The big clock face: the 5x5 font, each column doubled and each vertical row tripled.
+        const STRETCH = [0, 1, 1, 1, 2, 3, 3, 3, 4];
+        const BIG = Object.fromEntries(
+            Object.entries(DIGITS)
+                .filter(([ch]) => ch !== ':')
+                .map(([ch, rows]) => [ch, STRETCH.map((r) => rows[r].replace(/./g, (x) => x + x))])
+        );
+        BIG[':'] = ['    ', '    ', ' ## ', ' ## ', '    ', ' ## ', ' ## ', '    ', '    '];
+        BIG[1] = ['    ##    ', '  ####    ', '##  ##    ', '    ##    ', '    ##    ', '    ##    ', '    ##    ', '    ##    ', '  ######  '];
+        const DIGIT_H = BIG[0].length;
+        const DIGIT_GAP = 2;
+
         // Miner, facing left. Arms and pick are drawn procedurally.
         const BODY = [
             '  _.--._',
@@ -123,14 +135,15 @@
         const LAMP = { r: 1, c: 0 };
         const EYE = { r: 2, c: 3 };
 
-        const RAIL = 11;
-        const ROWS = RAIL + 1;
-        const DX = 1;
-        const DIGIT_TOP = RAIL - 5;
+        // The time fills the top of the cave; the mine works along the rail below it.
+        const DX = 3;
+        const DIGIT_TOP = 3;
         const SAMPLE = '00:00';
-        const DIGITS_W = SAMPLE.split('').reduce((w, ch) => w + DIGITS[ch][0].length + 1, -1);
+        const DIGITS_W = SAMPLE.split('').reduce((w, ch) => w + BIG[ch][0].length + DIGIT_GAP, -DIGIT_GAP);
         const DIGITS_END = DX + DIGITS_W;
-        const PILE_X = DIGITS_END + 2;
+        const RAIL = DIGIT_TOP + DIGIT_H + 8;
+        const ROWS = RAIL + 1;
+        const PILE_X = DIGITS_END - 19; // puts the miner (and his raised pick) just right of the last digit
         const PILE_W = 8;
         const CART_PARK = PILE_X;
         const GC = PILE_X + 15; // centre column of the gem inside the boulder
@@ -201,7 +214,7 @@
             cell.ch = ch;
             cell.cls = cls;
         };
-        const inDigits = (r, c) => r >= DIGIT_TOP && r < RAIL && c >= DX && c < DIGITS_END;
+        const inDigits = (r, c) => r >= DIGIT_TOP && r < DIGIT_TOP + DIGIT_H && c >= DX && c < DIGITS_END;
         const put = (grid, r, c, str, cls, behind = false) =>
             str.split('').forEach((ch, i) => set(grid, r, c + i, ch, cls, behind));
         const plot = (grid, pt, ch, cls, behind = false) => {
@@ -297,13 +310,14 @@
         // The new boulder drops from the ceiling during :00, after the gem has been taken.
         const DROP = [0.62, 0.85];
         const drawBoulder = (grid, cells, hits, p, drop) => {
+            const behind = drop > 0;
             cells.forEach((cell) => {
                 if (hits >= fallHit(cell.k)) return;
                 const cracked = hits >= crackHit(cell.k);
                 const fresh = hits === crackHit(cell.k) && p < 0.12;
                 const r = cell.r - drop;
                 if (r < 2) return;
-                set(grid, r, cell.c, cracked ? lineChar(strikeAngle(cell.r, cell.c)) : cell.ch, fresh ? 'sp' : cracked ? 'kc' : 'k');
+                set(grid, r, cell.c, cracked ? lineChar(strikeAngle(cell.r, cell.c)) : cell.ch, fresh ? 'sp' : cracked ? 'kc' : 'k', behind);
             });
         };
         const drawGem = (grid, at, cls, twinkle) =>
@@ -412,8 +426,8 @@
             // The clock: hours and minutes only. The boulder is the seconds.
             const text = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
             text.split('').reduce((x, ch) => {
-                DIGITS[ch].forEach((line, r) => put(grid, DIGIT_TOP + r, x, line, 'd'));
-                return x + DIGITS[ch][0].length + 1;
+                BIG[ch].forEach((line, r) => put(grid, DIGIT_TOP + r, x, line, 'd'));
+                return x + BIG[ch][0].length + DIGIT_GAP;
             }, DX);
 
             // The boulder. Hit n of the minute lands at :n; the 60th (at :00) frees the gem.
@@ -427,14 +441,14 @@
                 if (p < 0.2) drawGem(grid, { x: GEM_HOME.x, y: GEM_HOME.y - 0.7 * Math.sin((Math.PI * p) / 0.2) }, 'g', p < 0.1);
                 if (p >= 0.5 && p < 0.6) drawGem(grid, { x: ABOVE_HOPPER.x, y: lerp(ABOVE_HOPPER.y + CH, (RAIL - 2 + 0.5) * CH, easeIn2(seg(p, 0.5, 0.6))) }, 'g', false);
                 if (p >= DROP[0]) {
-                    const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * 8);
+                    const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * (RAIL - 8));
                     drawBoulder(grid, boulder, 0, p, drop);
-                    GEM.forEach((g, i) => g.r - drop >= 2 && set(grid, g.r - drop, g.c, ROCK[(i + minuteIdx) % 4], 'k'));
+                    GEM.forEach((g, i) => g.r - drop >= 2 && set(grid, g.r - drop, g.c, ROCK[(i + minuteIdx) % 4], 'k', drop > 0));
                 }
                 if (p >= 0.5 && p < DROP[1]) {
                     [GC - 3, GC - 1, GC + 1].forEach((c, i) => {
                         const q = p - 0.5 - i * 0.06;
-                        if (q > 0) plot(grid, { x: (c + 0.5) * CW, y: 2 * CH + 30 * q * q }, '.', 'du', true);
+                        if (q > 0) plot(grid, { x: (c + 0.5) * CW, y: 2 * CH + 130 * q * q }, '.', 'du', true);
                     });
                 }
             }
