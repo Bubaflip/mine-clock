@@ -66,6 +66,13 @@
         .g  { color: #ffd84a; text-shadow: 0 0 0.3em #ffe680, 0 0 0.9em #ffb000; }
         .p  { color: #8e6436; }
         .ca { color: #9aa3ab; }
+        .k  { color: #5c3f25; }
+        .kl { color: #a87a4a; }
+        .kc { color: #e2b678; }
+        .gd { color: #9a8236; }
+        .ey { color: #7fe6ff; text-shadow: 0 0 0.3em rgba(127, 230, 255, 0.9); }
+        .led { color: #ff5a44; text-shadow: 0 0 0.3em #ff5a44, 0 0 0.8em rgba(255, 70, 40, 0.6); }
+        .lo { color: #4a1e18; }
         .wh { color: #c3ccd4; }
         /* cave */
         .r  { color: #3a2a1b; }
@@ -120,16 +127,21 @@
         const ROWS = RAIL + 1;
         const DX = 1;
         const DIGIT_TOP = RAIL - 5;
-        const SAMPLE = '00:00:00';
+        const SAMPLE = '00:00';
         const DIGITS_W = SAMPLE.split('').reduce((w, ch) => w + DIGITS[ch][0].length + 1, -1);
         const DIGITS_END = DX + DIGITS_W;
+        const PILE_X = DIGITS_END + 2;
+        const PILE_W = 8;
+        const CART_PARK = PILE_X;
+        const GC = PILE_X + 15; // centre column of the gem inside the boulder
+        const STRIKE_C = GC + 2;
         const BODY_TOP = RAIL - BODY.length;
-        const BODY_X = DIGITS_END + 7;
+        const BODY_X = STRIKE_C + 7;
         const COLS = BODY_X + 14;
 
-        // Where the pick lands: the face of the last digit, one row below its middle.
-        const TX = DIGITS_END * CW + 0.1;
-        const TY = (RAIL - 3 + 0.5) * CH;
+        // Where the pick lands: the boulder's face, level with the top of the gem.
+        const TX = STRIKE_C * CW + 0.1;
+        const TY = (RAIL - 2 + 0.5) * CH;
 
         const shoulderAt = (lean) => ({
             x: (BODY_X + SHOULDER.c + lean + 0.5) * CW,
@@ -154,6 +166,7 @@
         };
         const dirOf = (deg) => ({ x: Math.cos(deg * RAD), y: -Math.sin(deg * RAD) });
         const along = (p, d, k) => ({ x: p.x + d.x * k, y: p.y + d.y * k });
+        const lerp2 = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) });
         const cellOf = (pt) => ({ r: Math.floor(pt.y / CH), c: Math.floor(pt.x / CW) });
         const lineChar = (deg) => {
             const a = ((deg % 180) + 180) % 180;
@@ -227,7 +240,7 @@
         const drawPile = (grid, heights) =>
             heights.forEach((h, i) =>
                 Array.from({ length: h }, (_, k) => k).forEach((k) =>
-                    set(grid, RAIL - 1 - k, DIGITS_END + i, "o.,o'o"[Math.floor(seeded(i * 5 + k * 13) * 6)], 'p')
+                    set(grid, RAIL - 1 - k, PILE_X + i, "o.,o'o"[Math.floor(seeded(i * 5 + k * 13) * 6)], 'p')
                 )
             );
 
@@ -253,23 +266,104 @@
             return state;
         };
 
-        // ---------- The minecart: arrives at :55, loads at :00, leaves by :05 ----------
+        // ---------- The boulder: one per minute. 30 pieces, each cracked by one hit and knocked off by the next ----------
+        const SHELL = 30;
+        const GEM = [[0, -1, '/'], [0, 0, '^'], [0, 1, '\\'], [1, -1, '\\'], [1, 0, 'v'], [1, 1, '/']].map(([dr, dc, ch]) => ({ r: RAIL - 2 + dr, c: GC + dc, ch }));
+        const isGemCell = (r, c) => GEM.some((g) => g.r === r && g.c === c);
+        const ROCK = '#%@&';
+        const boulderOf = (minuteIdx) => {
+            const cx = GC + 0.5;
+            const cells = Array.from({ length: 7 }, (_, i) => RAIL - 7 + i)
+                .flatMap((r) => Array.from({ length: 13 }, (_, i) => GC - 10 + i).map((c) => ({ r, c })))
+                .filter(({ r, c }) => !isGemCell(r, c))
+                .map(({ r, c }) => {
+                    const dx = (c + 0.5 - cx) / (c + 0.5 < cx ? 6 : 3.4);
+                    const dy = (RAIL - 0.5 - (r + 0.5)) / 5.6;
+                    return { r, c, score: dx * dx + dy * dy + 0.15 * seeded(minuteIdx * 31.7 + r * 7.3 + c * 1.91) };
+                })
+                .sort((a, b) => a.score - b.score)
+                .slice(0, SHELL);
+            // Peel from the outside in: the pieces farthest from the gem go first.
+            const depth = ({ r, c }) => Math.hypot((c - GC) / 1.7, r - (RAIL - 1.5)) + 0.9 * seeded(minuteIdx * 13.1 + r * 3.7 + c * 5.3);
+            return cells
+                .sort((a, b) => depth(b) - depth(a))
+                .map((cell, k) => ({ r: cell.r, c: cell.c, k, ch: ROCK[Math.floor(seeded(minuteIdx * 3.1 + cell.r * 11 + cell.c) * 4)] }));
+        };
+        const crackHit = (k) => Math.max(1, 2 * k - 3);
+        const fallHit = (k) => 2 * k + 2;
+        const strikeAngle = (r, c) => (Math.atan2(-((r + 0.5) * CH - TY), (c + 0.5) * CW - TX) / RAD + 360) % 360;
+        const cellPt = ({ r, c }) => ({ x: (c + 0.5) * CW, y: (r + 0.5) * CH });
+
+        // The new boulder drops from the ceiling during :00, after the gem has been taken.
+        const DROP = [0.62, 0.85];
+        const drawBoulder = (grid, cells, hits, p, drop) => {
+            cells.forEach((cell) => {
+                if (hits >= fallHit(cell.k)) return;
+                const cracked = hits >= crackHit(cell.k);
+                const fresh = hits === crackHit(cell.k) && p < 0.12;
+                const r = cell.r - drop;
+                if (r < 2) return;
+                set(grid, r, cell.c, cracked ? lineChar(strikeAngle(cell.r, cell.c)) : cell.ch, fresh ? 'sp' : cracked ? 'kc' : 'k');
+            });
+        };
+        const drawGem = (grid, at, cls, twinkle) =>
+            GEM.forEach((g, i) =>
+                plot(grid, { x: at.x + (g.c - GC) * CW, y: at.y + (g.r - (RAIL - 2)) * CH }, twinkle && i === 1 ? '*' : g.ch, cls)
+            );
+        const GEM_HOME = { x: (GC + 0.5) * CW, y: (RAIL - 2 + 0.5) * CH };
+
+        // ---------- The robot cart: rolls in at :55, takes the gem at :00, rolls back out ----------
         const cartAt = (m) => {
-            const park = DIGITS_END;
-            if (m >= 55 && m < 58.5) return { x: lerp(-8, park, easeOut(seg(m, 55, 58.5))), full: false };
-            if (m >= 58.5) return { x: park, full: false };
-            if (m < 0.35) return { x: park, full: true };
-            if (m < 4.5) return { x: lerp(park, COLS + 1, easeIn2(seg(m, 0.35, 4.5))), full: true };
+            if (m >= 55 && m < 58.5) return { x: lerp(-12, CART_PARK, easeOut(seg(m, 55, 58.5))), full: false, gem: false };
+            if (m >= 58.5) return { x: CART_PARK, full: true, gem: false };
+            if (m < 0.72) return { x: CART_PARK, full: true, gem: m >= 0.6 };
+            if (m < 3.6) return { x: lerp(CART_PARK, -12, easeIn2(seg(m, 0.72, 3.6))), full: true, gem: true };
             return null;
         };
-        const drawCart = (grid, cart, gem) => {
+        const pivotOf = (x) => ({ x: (x + 10) * CW, y: (RAIL - 3 + 0.5) * CH });
+        const REST = (x) => ({ x: pivotOf(x).x + 0.15, y: pivotOf(x).y - 1.1 });
+        const ABOVE_GEM = { x: GEM_HOME.x, y: (RAIL - 3 + 0.5) * CH };
+        const ABOVE_HOPPER = { x: (CART_PARK + 3.5) * CW, y: (RAIL - 5 + 0.5) * CH };
+        const APEX = { x: (ABOVE_GEM.x + ABOVE_HOPPER.x) / 2, y: (RAIL - 8) * CH };
+        const bezier = (a, b, c, t) => ({
+            x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * b.x + t * t * c.x,
+            y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * b.y + t * t * c.y,
+        });
+        // The claw: reaches over the gem just before :00, grabs it on the strike, swings it into the hopper.
+        const clawAt = (m, x) => {
+            if (m >= 59.55) return { pt: lerp2(REST(x), ABOVE_GEM, easeInOut(seg(m, 59.55, 59.95))), closed: false, holding: false };
+            if (m < 0.2) return { pt: ABOVE_GEM, closed: m >= 0.15, holding: false };
+            if (m < 0.5) return { pt: bezier(ABOVE_GEM, APEX, ABOVE_HOPPER, easeInOut(seg(m, 0.2, 0.5))), closed: true, holding: true };
+            if (m < 0.6) return { pt: ABOVE_HOPPER, closed: false, holding: false };
+            if (m < 0.72) return { pt: lerp2(ABOVE_HOPPER, REST(x), easeInOut(seg(m, 0.6, 0.72))), closed: false, holding: false };
+            return { pt: REST(x), closed: false, holding: false };
+        };
+        const drawRobot = (grid, cart, m, nowMs) => {
             const x = Math.round(cart.x);
             const spin = '-\\|/'[((Math.floor(cart.x * 2) % 4) + 4) % 4];
             if (cart.full) put(grid, RAIL - 2, x, ' ^^o^^ ', 'p');
-            if (cart.full && gem) set(grid, RAIL - 2, x + 3, '*', 'g');
+            if (cart.gem) put(grid, RAIL - 2, x + 2, '/^\\', 'g');
             put(grid, RAIL - 1, x, '\\_____/', 'ca');
+            set(grid, RAIL - 1, x + 7, '|', 'ca');
+            set(grid, RAIL - 2, x + 7, '|', 'ca');
             set(grid, RAIL, x + 1, spin, 'wh');
             set(grid, RAIL, x + 5, spin, 'wh');
+
+            // Arm and claw (folded while driving)
+            const claw = cart.x === CART_PARK ? clawAt(m, x) : { pt: REST(x), closed: false, holding: false };
+            const piv = pivotOf(x);
+            const ang = (Math.atan2(-(claw.pt.y - piv.y), claw.pt.x - piv.x) / RAD + 360) % 360;
+            segment(grid, piv, claw.pt, lineChar(ang), 'ca');
+            plot(grid, claw.pt, claw.closed ? 'n' : 'm', 'wh');
+            if (claw.holding) drawGem(grid, { x: claw.pt.x, y: claw.pt.y + CH }, 'g', false);
+
+            // Head: eyes, and an antenna light that blinks with the seconds
+            const happy = m < 3.6 && m >= 0.15;
+            const blink = nowMs % 2700 < 120;
+            put(grid, RAIL - 3, x + 6, '[', 'ca');
+            put(grid, RAIL - 3, x + 7, happy ? '^^' : blink ? '--' : 'oo', 'ey');
+            put(grid, RAIL - 3, x + 9, ']', 'ca');
+            set(grid, RAIL - 4, x + 8, 'o', (nowMs % 1000) < 500 ? 'led' : 'lo');
         };
 
         // ---------- Water dripping from the stalactites ----------
@@ -299,17 +393,12 @@
             drawCave(grid);
             drawDrips(grid, t);
 
-            // Rubble, and the gold nugget found once a minute
+            const m = sec + p;
+            const cart = cartAt(m);
+
+            // Rubble pile: grows through the minute, scooped up by the cart when it parks
             const heights = pileHeights(sec);
-            drawPile(grid, heights);
-            const gemSec = 8 + Math.floor(seeded(minuteIdx * 7.7) * 44);
-            const gemSecIdx = minuteIdx * 60 + gemSec;
-            const gemLanded = sec > gemSec || (sec === gemSec && p > 0.62);
-            if (gemLanded) {
-                const col = Math.min(DIGITS_END + 7, Math.max(DIGITS_END, Math.floor(chipAt(gemSecIdx, 0, 0.62).x / CW)));
-                const h = heights[col - DIGITS_END] || 0;
-                set(grid, RAIL - 1 - h, col, '*+x+'[Math.floor(t * 4) % 4], 'g');
-            }
+            if (!(cart && cart.x === CART_PARK)) drawPile(grid, heights);
 
             // Dust puff behind everything that stands in front of the wall
             if (p > 0.02 && p < 0.55) {
@@ -320,13 +409,60 @@
                 );
             }
 
-            // The clock. The ones-of-seconds digit jolts when it is struck.
-            const text = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-            const jolt = p < 0.05 ? -1 : 0;
-            text.split('').reduce((x, ch, i) => {
-                DIGITS[ch].forEach((line, r) => put(grid, DIGIT_TOP + r, x + (i === text.length - 1 ? jolt : 0), line, 'd'));
+            // The clock: hours and minutes only. The boulder is the seconds.
+            const text = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+            text.split('').reduce((x, ch) => {
+                DIGITS[ch].forEach((line, r) => put(grid, DIGIT_TOP + r, x, line, 'd'));
                 return x + DIGITS[ch][0].length + 1;
             }, DX);
+
+            // The boulder. Hit n of the minute lands at :n; the 60th (at :00) frees the gem.
+            const boulder = boulderOf(minuteIdx);
+            if (sec > 0) {
+                drawBoulder(grid, boulder, sec, p, 0);
+                const gemCls = sec >= 50 ? 'g' : sec >= 30 ? 'gd' : null;
+                if (gemCls) drawGem(grid, GEM_HOME, gemCls, sec >= 50 && (t * 1.7) % 1 < 0.12);
+                else GEM.forEach((g, i) => set(grid, g.r, g.c, ROCK[(i + minuteIdx) % 4], 'k'));
+            } else {
+                if (p < 0.2) drawGem(grid, { x: GEM_HOME.x, y: GEM_HOME.y - 0.7 * Math.sin((Math.PI * p) / 0.2) }, 'g', p < 0.1);
+                if (p >= 0.5 && p < 0.6) drawGem(grid, { x: ABOVE_HOPPER.x, y: lerp(ABOVE_HOPPER.y + CH, (RAIL - 2 + 0.5) * CH, easeIn2(seg(p, 0.5, 0.6))) }, 'g', false);
+                if (p >= DROP[0]) {
+                    const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * 8);
+                    drawBoulder(grid, boulder, 0, p, drop);
+                    GEM.forEach((g, i) => g.r - drop >= 2 && set(grid, g.r - drop, g.c, ROCK[(i + minuteIdx) % 4], 'k'));
+                }
+                if (p >= 0.5 && p < DROP[1]) {
+                    [GC - 3, GC - 1, GC + 1].forEach((c, i) => {
+                        const q = p - 0.5 - i * 0.06;
+                        if (q > 0) plot(grid, { x: (c + 0.5) * CW, y: 2 * CH + 30 * q * q }, '.', 'du', true);
+                    });
+                }
+            }
+
+            // The new boulder lands: a puff of dust along the rail
+            const landAge = sec === 0 ? p - DROP[1] : sec === 1 ? p + 1 - DROP[1] : -1;
+            if (landAge >= 0 && landAge < 0.5) {
+                const spread = 1 + 5 * easeOut(landAge / 0.5);
+                [-1, 1].forEach((side) =>
+                    [0, 0.6].forEach((k) =>
+                        plot(grid, { x: (GC + 0.5 - 1.5 + side * (3 + spread + k * 2)) * CW, y: (RAIL - 0.5 - k - landAge * 1.5) * CH }, landAge < 0.25 ? 'o' : '.', 'du', true)
+                    )
+                );
+            }
+
+            // The piece knocked off by this hit flies onto the pile (or into the waiting cart)
+            const flyK = sec === 0 ? SHELL - 1 : sec % 2 === 0 ? sec / 2 - 1 : -1;
+            if (flyK >= 0 && p < 0.5) {
+                const piece = (sec === 0 ? boulderOf(minuteIdx - 1) : boulder).find((cell) => cell.k === flyK);
+                const from = cellPt(piece);
+                const col = PILE_X + ((flyK * 3) % PILE_W);
+                const to = sec === 0 || sec >= 58
+                    ? { x: (CART_PARK + 3.5) * CW, y: (RAIL - 2 + 0.5) * CH }
+                    : { x: (col + 0.5) * CW, y: (RAIL - 1 - (heights[col - PILE_X] || 0) + 0.5) * CH };
+                const T = 0.5;
+                const vy = (to.y - from.y - 14 * T * T) / T;
+                plot(grid, { x: lerp(from.x, to.x, p / T), y: from.y + vy * p + 14 * p * p }, piece.ch, 'k');
+            }
 
             // Pose
             const theta = angleAt(p);
@@ -370,11 +506,10 @@
 
             // Chips
             if (p < 0.85) {
-                Array.from({ length: 5 }, (_, i) => i).forEach((i) => {
+                Array.from({ length: 4 }, (_, i) => i).forEach((i) => {
                     const chip = chipAt(secIdx, i, p);
                     if (chip.bounces > 1) return;
-                    const isGem = i === 0 && secIdx === gemSecIdx;
-                    plot(grid, chip, isGem ? '*' : "*.',`"[i], isGem ? 'g' : 'c', true);
+                    plot(grid, chip, ".',`"[i], 'c', true);
                 });
             }
 
@@ -401,32 +536,29 @@
 
             if (!overhead) drawArmsAndPick();
 
-            const cart = cartAt(sec + p);
-            if (cart) drawCart(grid, cart, true);
+            if (cart) drawRobot(grid, cart, m, nowMs);
 
             // Helmet lamp: lights the digits and the rock it points at, and the dust floating in its beam
             const lamp = { x: (BODY_X + LAMP.c + lean + 0.5) * CW, y: (BODY_TOP + LAMP.r + 0.5) * CH };
-            // Aim the cone so its edges frame the whole clock, with a small sway
-            const angTo = (x, y) => (Math.atan2(-(y - lamp.y), x - lamp.x) / RAD + 360) % 360;
-            const corners = [DX, DIGITS_END].flatMap((c) => [DIGIT_TOP, DIGIT_TOP + 5].map((r) => angTo(c * CW, r * CH)));
-            const lo = Math.min(...corners);
-            const hi = Math.max(...corners);
-            const beta = (lo + hi) / 2 - 2 * Math.sin(Math.PI * seg(p, 0.15, 0.85));
-            const HALF = (hi - lo) / 2 + 9;
-            const LEN = Math.hypot(lamp.x - DX * CW, lamp.y - (DIGIT_TOP + 5) * CH) + 6;
+            // The beam follows his head: it rises with the pick and snaps down onto the boulder with the strike.
+            const toTarget = (Math.atan2(-(TY - lamp.y), TX - lamp.x) / RAD + 360) % 360;
+            const beta = toTarget - 5 + 0.07 * (theta - TH_IMPACT);
+            const HALF = 19;
+            const LEN = 26;
             const light = (pt) => {
                 const dx = pt.x - lamp.x;
                 const dy = pt.y - lamp.y;
                 const d = Math.hypot(dx, dy);
                 const ang = (Math.atan2(-dy, dx) / RAD + 360) % 360;
                 const off = Math.abs(((ang - beta + 540) % 360) - 180);
-                return d > LEN || off > HALF ? 0 : (1 - 0.7 * d / LEN) * (1 - off / HALF);
+                return d > LEN || off > HALF ? 0 : (1 - d / LEN) * (1 - off / HALF);
             };
             grid.forEach((row, r) =>
                 row.forEach((cell, c) => {
                     const i = light({ x: (c + 0.5) * CW, y: (r + 0.5) * CH });
                     if (i > 0.06 && cell.cls === 'd') cell.cls = 'dl';
                     if (i > 0.04 && cell.cls === 'r') cell.cls = 'rl';
+                    if (i > 0.04 && cell.cls === 'k') cell.cls = 'kl';
                 })
             );
             Array.from({ length: 36 }, (_, i) => i).forEach((i) => {
@@ -438,7 +570,10 @@
                 if (!inDigits(r, c) && light(pt) > 0.05) plot(grid, pt, '.', 'm', true);
             });
 
-            return { grid, lamp, beta, half: HALF, len: LEN, p };
+            // A flash on every strike, and a thump when the new boulder lands
+            const flash = p < 0.3 ? Math.pow(1 - p / 0.3, 2) : 0;
+            const thump = sec === 0 && p >= DROP[1] && p < DROP[1] + 0.06;
+            return { grid, lamp, beta, half: HALF, len: LEN, p, flash, thump };
         };
 
         const toText = (grid) => grid.map((row) => row.map((c) => c.ch).join('')).join('\n');
@@ -479,13 +614,15 @@
                     scene.innerHTML = html;
                     lastHtml = html;
                 }
-                const { lamp, beta, half, len, p } = frame;
+                const { lamp, beta, half, len, p, flash, thump } = frame;
                 const a = dirOf(beta - half);
                 const b = dirOf(beta + half);
                 beam.style.clipPath = `polygon(${em(lamp.x)} ${em(lamp.y)}, ${em(lamp.x + a.x * len)} ${em(lamp.y + a.y * len)}, ${em(lamp.x + b.x * len)} ${em(lamp.y + b.y * len)})`;
-                beam.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,205,120,0.30), rgba(255,170,70,0.12) 16em, rgba(255,150,40,0) ${em(len)})`;
+                beam.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,205,120,0.30), rgba(255,170,70,0.10) 11em, rgba(255,150,40,0) 26em)`;
+                beam.style.opacity = (0.7 + 0.3 * flash).toFixed(3);
+                halo.style.opacity = (0.6 + 0.4 * flash).toFixed(3);
                 halo.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,235,180,0.45), rgba(255,200,120,0) 1.6em)`;
-                stage.style.transform = p < 0.04 ? 'translate(-0.08em, 0.05em)' : p < 0.08 ? 'translate(0.05em, -0.03em)' : '';
+                stage.style.transform = thump ? 'translate(0, 0.06em)' : p < 0.04 ? 'translate(-0.04em, 0.025em)' : p < 0.08 ? 'translate(0.025em, -0.015em)' : '';
                 requestAnimationFrame(tick);
             };
 
