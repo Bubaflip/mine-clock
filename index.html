@@ -48,8 +48,9 @@
             color: #c07a22;
         }
         /* digits */
-        .d  { color: #b06d1c; font-weight: 700; }
-        .dl { color: #ffe0a0; font-weight: 700; text-shadow: 0 0 0.25em rgba(255, 190, 90, 0.9), 0 0 0.8em rgba(255, 140, 30, 0.5); }
+        /* the first two shadows smear each glyph a hair left and right, so the strokes read heavier */
+        .d  { color: #b06d1c; font-weight: 700; text-shadow: 0.05em 0 0 currentColor, -0.05em 0 0 currentColor, 0 0 0.3em rgba(176, 109, 28, 0.6); }
+        .dl { color: #ffe0a0; font-weight: 700; text-shadow: 0.05em 0 0 currentColor, -0.05em 0 0 currentColor, 0 0 0.25em rgba(255, 190, 90, 0.9), 0 0 0.8em rgba(255, 140, 30, 0.5); }
         /* miner */
         .h  { color: #ffb000; }
         .l  { color: #fffbe6; text-shadow: 0 0 0.3em #fff, 0 0 1em #ffcc55; }
@@ -151,6 +152,7 @@
         );
         BIG[':'] = ['    ', '    ', ' ## ', ' ## ', '    ', ' ## ', ' ## ', '    ', '    '];
         BIG[1] = ['    ##    ', '  ####    ', '##  ##    ', '    ##    ', '    ##    ', '    ##    ', '    ##    ', '    ##    ', '  ######  '];
+        BIG[2] = ['  ######  ', '##      ##', '        ##', '        ##', '      ##  ', '    ##    ', '  ##      ', '##        ', '##########'];
         const DIGIT_H = BIG[0].length;
         const DIGIT_GAP = 2;
 
