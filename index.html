@@ -84,7 +84,8 @@
         /* calendar sign */
         .sg  { color: #8a5a2b; }
         .sgt { color: #ffe9b8; text-shadow: 0 0 0.25em rgba(255, 200, 120, 0.7); }
-        .sgu { color: #ff7a50; text-shadow: 0 0 0.3em #ff5a30, 0 0 0.8em rgba(255, 90, 40, 0.6); }
+        .sgu { color: #ff6a48; text-shadow: 0 0 0.3em #ff4a28, 0 0 0.8em rgba(255, 60, 30, 0.6); }
+        .sgr { color: #b8321e; text-shadow: 0 0 0.3em rgba(255, 60, 30, 0.5); }
     </style>
 </head>
 <body>
@@ -398,42 +399,44 @@
                 }
             });
 
-        // ---------- Calendar alerts: a wooden sign under the time while a reminder is due ----------
-        const LATE_MIN = 10; // the sign stays up this long after the event starts, unless tapped away
-        const eventKey = (ev) => `${ev.id}|${ev.start}`;
-        const alertAt = (nowMs, events, dismissed) => {
-            const due = events
-                .filter((ev) => !dismissed.has(eventKey(ev)))
-                .filter((ev) => nowMs >= ev.start - Math.max(...ev.reminders) * 60000 && nowMs < ev.start + LATE_MIN * 60000)
-                .sort((a, b) => a.start - b.start);
-            return due.length ? { event: due[0], more: due.length - 1 } : null;
-        };
+        // ---------- Calendar: the next meeting within the hour, on a sign above the miner ----------
+        const HOUR_MS = 60 * 60000;
+        const URGENT_MS = 10 * 60000; // the sign turns red for the last 10 minutes
+        const BEEP_MS = 2 * 60000; // one beep 2 minutes before the start
+        // The next meeting starting within the hour; it stays up through its first minute ("NOW").
+        const nextMeeting = (nowMs, events) =>
+            events
+                .filter((ev) => ev.start - HOUR_MS <= nowMs && nowMs < ev.start + 60000)
+                .sort((a, b) => a.start - b.start)[0] || null;
         // Accents dropped, anything else outside printable ASCII removed: every glyph must be one cell wide.
         const ascii = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, '').replace(/\s+/g, ' ').trim();
-        const SIGN = { r: DIGIT_TOP + DIGIT_H, c: 1, w: 34 };
-        const drawSign = (grid, { event, more }, nowMs) => {
+        // Two lines of title, broken at a space when one is near, the rest cut with ~.
+        const wrapTitle = (title, width) => {
+            const first = title.length <= width ? title : title.slice(0, width).replace(/\s+\S*$/, '') || title.slice(0, width);
+            const rest = title.slice(first.length).trim();
+            return [first, rest.length > width ? `${rest.slice(0, width - 1)}~` : rest];
+        };
+        const SIGN = { r: 3, c: DIGITS_END + 1, w: COLS - DIGITS_END - 1, h: 5 };
+        const drawSign = (grid, event, nowMs) => {
             const inner = SIGN.w - 4;
             const mins = Math.ceil((event.start - nowMs) / 60000);
-            const status = mins > 1 ? `in ${mins} min` : mins === 1 ? 'in 1 min' : nowMs < event.start + 60000 ? 'NOW' : `started ${Math.floor((nowMs - event.start) / 60000)} min ago`;
             const start = new Date(event.start);
-            const lines = [
-                `${pad(start.getHours())}:${pad(start.getMinutes())}  ${ascii(event.title)}`,
-                more > 0 ? `${status}  +${more} more` : status,
-            ].map((s) => (s.length > inner ? `${s.slice(0, inner - 1)}~` : s.padEnd(inner)));
-            const urgent = mins <= 1 && nowMs % 1000 < 500;
+            const lines = [mins > 0 ? `in ${mins} min` : 'NOW', ...wrapTitle(ascii(event.title), inner)].map((s) => s.padEnd(inner));
+            const urgent = event.start - nowMs <= URGENT_MS;
             const edge = '-'.repeat(SIGN.w - 2);
-            Array.from({ length: 4 }, (_, i) => grid[SIGN.r + i].slice(SIGN.c, SIGN.c + SIGN.w)).flat().forEach((cell) => Object.assign(cell, { ch: ' ', cls: '' }));
-            put(grid, SIGN.r, SIGN.c, `.${edge}.`, 'sg');
+            const top = `- ${pad(start.getHours())}:${pad(start.getMinutes())} ${edge}`.slice(0, SIGN.w - 2);
+            Array.from({ length: SIGN.h }, (_, i) => grid[SIGN.r + i].slice(SIGN.c, SIGN.c + SIGN.w)).flat().forEach((cell) => Object.assign(cell, { ch: ' ', cls: '' }));
+            put(grid, SIGN.r, SIGN.c, `.${top}.`, urgent ? 'sgr' : 'sg');
             lines.forEach((line, i) => {
-                put(grid, SIGN.r + 1 + i, SIGN.c, '| ', 'sg');
-                put(grid, SIGN.r + 1 + i, SIGN.c + 2, line, urgent && i === 1 ? 'sgu' : 'sgt');
-                put(grid, SIGN.r + 1 + i, SIGN.c + SIGN.w - 2, ' |', 'sg');
+                put(grid, SIGN.r + 1 + i, SIGN.c, '| ', urgent ? 'sgr' : 'sg');
+                put(grid, SIGN.r + 1 + i, SIGN.c + 2, line, urgent ? 'sgu' : 'sgt');
+                put(grid, SIGN.r + 1 + i, SIGN.c + SIGN.w - 2, ' |', urgent ? 'sgr' : 'sg');
             });
-            put(grid, SIGN.r + 3, SIGN.c, `'${edge}'`, 'sg');
+            put(grid, SIGN.r + SIGN.h - 1, SIGN.c, `'${edge}'`, urgent ? 'sgr' : 'sg');
         };
 
         // ---------- The whole frame ----------
-        const renderScene = (nowMs, alert = null) => {
+        const renderScene = (nowMs, meeting = null) => {
             const date = new Date(nowMs);
             const p = (nowMs % 1000) / 1000;
             const secIdx = Math.floor(nowMs / 1000);
@@ -444,7 +447,7 @@
 
             drawCave(grid);
             drawDrips(grid, t);
-            if (alert) drawSign(grid, alert, nowMs);
+            if (meeting) drawSign(grid, meeting, nowMs);
 
             const m = sec + p;
             const cart = cartAt(m);
@@ -677,7 +680,7 @@
             }
             const feeds = (fromHash || readStored()).split(',').map((u) => u.trim()).filter(Boolean);
 
-            const calendar = { events: [], dismissed: new Set(), chimed: new Set() };
+            const calendar = { events: [], beeped: new Set() };
             const poll = async () => {
                 const results = await Promise.allSettled(feeds.map((url) => fetch(url, { cache: 'no-store' }).then((r) => r.json())));
                 const ok = results.filter((r) => r.status === 'fulfilled' && Array.isArray(r.value.events));
@@ -712,26 +715,24 @@
                     osc.stop(at + 1.3);
                 });
             };
-            // Chime once at each reminder time and at the start, if the sign has not been tapped away.
-            const checkChimes = () => {
+            // One beep, 2 minutes before the next meeting starts.
+            const checkBeep = () => {
                 const now = Date.now();
-                calendar.events
-                    .filter((ev) => !calendar.dismissed.has(eventKey(ev)))
-                    .flatMap((ev) => [...ev.reminders, 0].map((min) => ({ key: `${eventKey(ev)}@${min}`, at: ev.start - min * 60000 })))
-                    .filter(({ key, at }) => now >= at && now < at + 60000 && !calendar.chimed.has(key))
-                    .forEach(({ key }) => {
-                        calendar.chimed.add(key);
-                        chime();
-                    });
+                const next = nextMeeting(now, calendar.events);
+                if (!next) return;
+                const key = `${next.id}|${next.start}`;
+                const at = next.start - BEEP_MS;
+                if (now >= at && now < at + 60000 && !calendar.beeped.has(key)) {
+                    calendar.beeped.add(key);
+                    chime();
+                }
             };
 
             const em = (v) => `${(v + 2).toFixed(2)}em`;
             let lastHtml = '';
-            let shown = null;
             const tick = () => {
                 const now = Date.now();
-                shown = alertAt(now, calendar.events, calendar.dismissed);
-                const frame = renderScene(now, shown);
+                const frame = renderScene(now, nextMeeting(now, calendar.events));
                 const html = toHtml(frame.grid);
                 if (html !== lastHtml) {
                     scene.innerHTML = html;
@@ -766,11 +767,8 @@
                 if (document.visibilityState === 'visible') keepAwake();
             });
             document.addEventListener('pointerdown', keepAwake);
-            // A tap unlocks sound, and puts away the sign that is showing.
-            document.addEventListener('pointerdown', () => {
-                unlockAudio();
-                if (shown) calendar.dismissed.add(eventKey(shown.event));
-            });
+            // A tap unlocks sound.
+            document.addEventListener('pointerdown', unlockAudio);
 
             fit();
             keepAwake();
@@ -778,7 +776,7 @@
             if (feeds.length) {
                 poll();
                 setInterval(poll, 2 * 60 * 1000);
-                setInterval(checkChimes, 1000);
+                setInterval(checkBeep, 1000);
             }
         };
 
