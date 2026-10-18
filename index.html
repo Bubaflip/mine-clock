@@ -661,7 +661,7 @@
         // ---------- Water dripping from the stalactites ----------
         // Each stalactite has its own whole-second period, and every drop lands on a half second, between two strikes.
         const DRIP_FALL = Math.sqrt((2 * (GROUND - 2 * CH)) / 30);
-        const DRIP_PERIODS = [3, 5, 4, 7];
+        const DRIP_PERIODS = [7, 11, 9, 13];
         const drawDrips = (grid, t) =>
             DRIP_COLS.forEach((c, i) => {
                 const period = DRIP_PERIODS[i];
@@ -711,6 +711,17 @@
             put(grid, SIGN.r + SIGN.h - 1, SIGN.c, `'${edge}'`, urgent ? 'sgr' : 'sg');
         };
 
+        // ---------- The date: a plaque set into the ceiling, above where the sign hangs ----------
+        const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+        const drawDate = (grid, date) => {
+            const text = ` ${WEEKDAYS[date.getDay()]} ${date.getDate()} `;
+            const c = SIGN.c + Math.floor((SIGN.w - text.length - 2) / 2);
+            grid[0].slice(c, c + text.length + 2).forEach((cell) => Object.assign(cell, { ch: ' ', cls: '' }));
+            put(grid, 0, c, '[', 'rl');
+            put(grid, 0, c + 1, text, 'sgt');
+            put(grid, 0, c + text.length + 1, ']', 'rl');
+        };
+
         // ---------- The whole frame ----------
         const renderScene = (nowMs, meeting = null) => {
             const date = new Date(nowMs);
@@ -722,6 +733,7 @@
             const grid = blank();
 
             drawCave(grid);
+            drawDate(grid, date);
             drawDrips(grid, t);
             if (meeting) drawSign(grid, meeting, nowMs);
 
