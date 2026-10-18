@@ -51,6 +51,17 @@
         /* the first two shadows smear each glyph a hair left and right, so the strokes read heavier */
         .d  { color: #b06d1c; font-weight: 700; text-shadow: 0.05em 0 0 currentColor, -0.05em 0 0 currentColor, 0 0 0.3em rgba(176, 109, 28, 0.6); }
         .dl { color: #ffe0a0; font-weight: 700; text-shadow: 0.05em 0 0 currentColor, -0.05em 0 0 currentColor, 0 0 0.25em rgba(255, 190, 90, 0.9), 0 0 0.8em rgba(255, 140, 30, 0.5); }
+        /* the new hour: a ring of gold light runs out through the digits from where the gem lands */
+        .dg { color: #ffd26a; font-weight: 700; text-shadow: 0.05em 0 0 currentColor, -0.05em 0 0 currentColor, 0 0 0.35em rgba(255, 200, 80, 0.9), 0 0 1em rgba(255, 160, 30, 0.6); }
+        /* hour rock */
+        .hk   { color: #5a4330; }
+        .hk2  { color: #76593e; }
+        .hc   { color: #c0905c; }
+        /* the diamond: the blue of the miner's overalls and the drips */
+        .hd   { color: #8fb4e0; text-shadow: 0 0 0.3em rgba(111, 147, 189, 0.7); }
+        .hdi  { color: #4f6f99; }
+        .hot  { color: #b0361f; text-shadow: 0 0 0.3em rgba(255, 60, 30, 0.5); }
+        .hotb { color: #ff6a3a; text-shadow: 0 0 0.3em #ff4a28, 0 0 0.9em rgba(255, 60, 30, 0.7); }
         /* miner */
         .h  { color: #ffb000; }
         .l  { color: #fffbe6; text-shadow: 0 0 0.3em #fff, 0 0 1em #ffcc55; }
@@ -362,23 +373,37 @@
             );
         const GEM_HOME = { x: (GC + 0.5) * CW, y: (RAIL - 2 + 0.5) * CH };
 
-        // ---------- The robot cart: rolls in at :55, takes the gem at :00, rolls back out ----------
+        // ---------- The robot cart: rolls in at :55, takes the gem at :00, backs out. dir: 1 driving in, -1 backing out ----------
         const cartAt = (m) => {
-            if (m >= 55 && m < 58.5) return { x: lerp(-12, CART_PARK, easeOut(seg(m, 55, 58.5))), full: false, gem: false };
-            if (m >= 58.5) return { x: CART_PARK, full: true, gem: false };
-            if (m < 0.72) return { x: CART_PARK, full: true, gem: m >= 0.6 };
-            if (m < 3.6) return { x: lerp(CART_PARK, -12, easeIn2(seg(m, 0.72, 3.6))), full: true, gem: true };
+            if (m >= 55 && m < 58.5) return { x: lerp(-15, CART_PARK, easeOut(seg(m, 55, 58.5))), full: false, gem: false, dir: 1 };
+            if (m >= 58.5) return { x: CART_PARK, full: true, gem: false, dir: 0 };
+            if (m < 0.72) return { x: CART_PARK, full: true, gem: m >= 0.6, dir: 0 };
+            if (m < 3.6) return { x: lerp(CART_PARK, -15, easeIn2(seg(m, 0.72, 3.6))), full: true, gem: true, dir: -1 };
             return null;
         };
-        const pivotOf = (x) => ({ x: (x + 10) * CW, y: (RAIL - 3 + 0.5) * CH });
-        const REST = (x) => ({ x: pivotOf(x).x + 0.15, y: pivotOf(x).y - 1.1 });
+        // The crane's shoulder sits between the tub and the cab.
+        const craneBase = (x) => ({ x: (x + 8 + 0.5) * CW, y: (RAIL - 4 + 0.5) * CH });
+        // Folded: a mast straight up, the boom forward over the cab, tongs hanging.
+        const REST = (x) => ({ x: craneBase(x).x + 2.6, y: craneBase(x).y - 3 });
         const ABOVE_GEM = { x: GEM_HOME.x, y: (RAIL - 3 + 0.5) * CH };
-        const ABOVE_HOPPER = { x: (CART_PARK + 3.5) * CW, y: (RAIL - 5 + 0.5) * CH };
+        const ABOVE_HOPPER = { x: (CART_PARK + 3.5) * CW, y: (RAIL - 6 + 0.5) * CH };
         const APEX = { x: (ABOVE_GEM.x + ABOVE_HOPPER.x) / 2, y: (RAIL - 8) * CH };
         const bezier = (a, b, c, t) => ({
             x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * b.x + t * t * c.x,
             y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * b.y + t * t * c.y,
         });
+        // Two-joint arm: given shoulder and claw, the elbow sits on the upper side of the line between them.
+        const UPPER = 3;
+        const FORE = 2.6;
+        const elbowOf = (s, tip) => {
+            const len = Math.hypot(tip.x - s.x, tip.y - s.y) || 1;
+            const u = { x: (tip.x - s.x) / len, y: (tip.y - s.y) / len };
+            const d = Math.min(UPPER + FORE - 0.01, Math.max(Math.abs(UPPER - FORE) + 0.01, len));
+            const a = (UPPER * UPPER - FORE * FORE + d * d) / (2 * d);
+            const k = Math.sqrt(Math.max(0, UPPER * UPPER - a * a));
+            const up = u.x >= 0 ? { x: u.y, y: -u.x } : { x: -u.y, y: u.x };
+            return { x: s.x + u.x * a + up.x * k, y: s.y + u.y * a + up.y * k };
+        };
         // The claw: reaches over the gem just before :00, grabs it on the strike, swings it into the hopper.
         const clawAt = (m, x) => {
             if (m >= 59.55) return { pt: lerp2(REST(x), ABOVE_GEM, easeInOut(seg(m, 59.55, 59.95))), closed: false, holding: false };
@@ -388,32 +413,216 @@
             if (m < 0.72) return { pt: lerp2(ABOVE_HOPPER, REST(x), easeInOut(seg(m, 0.6, 0.72))), closed: false, holding: false };
             return { pt: REST(x), closed: false, holding: false };
         };
+        //   cols  0123456789abcd
+        //   R-5              o       antenna light
+        //   R-4    .o%#o.  .-|.      load, crane shoulder (col 8), cab roof
+        //   R-3   |=o==o=| [oo]=     tub rim with rivets, screen face, headlight
+        //   R-2    \____/  |__|
+        //   R-1   (-)==(-)==(-)      three wheels on the rail
         const drawRobot = (grid, cart, m, nowMs) => {
             const x = Math.round(cart.x);
+            const t = nowMs / 1000;
             const spin = '-\\|/'[((Math.floor(cart.x * 2) % 4) + 4) % 4];
-            if (cart.full) put(grid, RAIL - 2, x, ' ^^o^^ ', 'p');
-            if (cart.gem) put(grid, RAIL - 2, x + 2, '/^\\', 'g');
-            put(grid, RAIL - 1, x, '\\_____/', 'ca');
-            set(grid, RAIL - 1, x + 7, '|', 'ca');
-            set(grid, RAIL - 2, x + 7, '|', 'ca');
-            set(grid, RAIL, x + 1, spin, 'wh');
-            set(grid, RAIL, x + 5, spin, 'wh');
 
-            // Arm and claw (folded while driving)
+            // Wheel dust behind it while it moves
+            if (cart.dir) {
+                const back = cart.dir === 1 ? x - 1 : x + 14;
+                [0, 1, 2].forEach((i) => {
+                    const q = (t * 3 + i / 3) % 1;
+                    plot(grid, { x: (back - cart.dir * q * 3 + 0.5) * CW, y: (RAIL - 0.5 - q * 1.5) * CH }, q < 0.4 ? 'o' : '.', 'du', true);
+                });
+            }
+
+            // Tub, load and the gem riding on top
+            if (cart.full) put(grid, RAIL - 4, x + 1, '.o%#o.', 'p');
+            if (cart.gem) put(grid, RAIL - 4, x + 2, '/^\\', 'g');
+            put(grid, RAIL - 3, x, '|=', 'ca');
+            put(grid, RAIL - 3, x + 2, 'o', 'wh');
+            put(grid, RAIL - 3, x + 3, '==', 'ca');
+            put(grid, RAIL - 3, x + 5, 'o', 'wh');
+            put(grid, RAIL - 3, x + 6, '=|', 'ca');
+            put(grid, RAIL - 2, x + 1, '\\____/', 'ca');
+            put(grid, RAIL - 1, x, '(_)==(_)==(_)', 'ca');
+            [1, 6, 11].forEach((c) => set(grid, RAIL - 1, x + c, spin, 'wh'));
+
+            // Crane arm, behind the cab (folded back while driving)
             const claw = cart.x === CART_PARK ? clawAt(m, x) : { pt: REST(x), closed: false, holding: false };
-            const piv = pivotOf(x);
-            const ang = (Math.atan2(-(claw.pt.y - piv.y), claw.pt.x - piv.x) / RAD + 360) % 360;
-            segment(grid, piv, claw.pt, lineChar(ang), 'ca');
-            plot(grid, claw.pt, claw.closed ? 'n' : 'm', 'wh');
+            const s = craneBase(x);
+            const e = elbowOf(s, claw.pt);
+            const angle = (a, b) => (Math.atan2(-(b.y - a.y), b.x - a.x) / RAD + 360) % 360;
+            segment(grid, s, e, lineChar(angle(s, e)), 'ca');
+            segment(grid, e, claw.pt, lineChar(angle(e, claw.pt)), 'ca');
+            plot(grid, e, 'o', 'wh');
+
+            // Brakes: sparks off the front wheel as it pulls up
+            if (m >= 57.2 && m < 58.4 && Math.floor(t * 20) % 2) {
+                set(grid, RAIL - 1, x + 13, '*', 'sp');
+                set(grid, RAIL - 2, x + 14, "'", 'sp');
+            }
+
+            // Cab: screen face, antenna light that blinks with the seconds
+            const happy = m < 3.6 && m >= 0.15;
+            const focus = m >= 59.55 || m < 0.15;
+            const blink = nowMs % 2700 < 120;
+            put(grid, RAIL - 4, x + 9, '.-|.', 'ca');
+            put(grid, RAIL - 3, x + 9, '[', 'ca');
+            put(grid, RAIL - 3, x + 10, happy ? '^^' : focus ? '><' : blink ? '--' : 'oo', 'ey');
+            put(grid, RAIL - 3, x + 12, ']', 'ca');
+            put(grid, RAIL - 2, x + 9, '|__|', 'ca');
+            set(grid, RAIL - 5, x + 11, 'o', (nowMs % 1000) < 500 ? 'led' : 'lo');
+            // Headlight on the way in, a blinking reverse lamp on the way out
+            set(grid, RAIL - 3, x + 13, '=', cart.dir === 1 ? 'l' : 'h');
+            if (cart.dir === 1) put(grid, RAIL - 3, x + 14, '-.', 'm', true);
+            if (cart.dir === -1 && nowMs % 500 < 250) set(grid, RAIL - 3, x - 1, 'o', 'led');
+
+            // Shoulder and tongs in front of everything
+            plot(grid, s, 'O', 'wh');
+            const tip = cellOf(claw.pt);
+            put(grid, tip.r, tip.c - 1, claw.closed ? '>-<' : '/ \\', 'wh');
             if (claw.holding) drawGem(grid, { x: claw.pt.x, y: claw.pt.y + CH }, 'g', false);
 
-            // Head: eyes, and an antenna light that blinks with the seconds
-            const happy = m < 3.6 && m >= 0.15;
-            const blink = nowMs % 2700 < 120;
-            put(grid, RAIL - 3, x + 6, '[', 'ca');
-            put(grid, RAIL - 3, x + 7, happy ? '^^' : blink ? '--' : 'oo', 'ey');
-            put(grid, RAIL - 3, x + 9, ']', 'ca');
-            set(grid, RAIL - 4, x + 8, 'o', (nowMs % 1000) < 500 ? 'led' : 'lo');
+            // A little heart when it gets the gem
+            if (m >= 0.6 && m < 2.2) {
+                const q = seg(m, 0.6, 2.2);
+                put(grid, Math.round(RAIL - 6 - q * 3), x + 10, '<3', q < 0.7 ? 'led' : 'lo', true);
+            }
+        };
+
+        // ---------- The hour rock: one per hour, left of the boulder. Each minute's thump knocks a chunk off ----------
+        const HR_C = 18; // centre column
+        const HGEM_ROWS = ['  /^\\  ', ' /:::\\ ', '<:::::>', ' \\:::/ ', '  \\v/  '];
+        const HGEM_TOP = RAIL - 6;
+        const HGEM = HGEM_ROWS.flatMap((line, i) =>
+            line.split('').map((ch, j) => ({ r: HGEM_TOP + i, c: HR_C - 3 + j, ch })).filter((g) => g.ch !== ' ')
+        );
+        const isHourGem = (r, c) => HGEM.some((g) => g.r === r && g.c === c);
+        const HCORE = { x: (HR_C + 0.5) * CW, y: (HGEM_TOP + 2.5) * CH };
+        const coreAngle = (r, c) => (Math.atan2(-((r + 0.5) * CH - HCORE.y), (c + 0.5) * CW - HCORE.x) / RAD + 360) % 360;
+        const CRUST = 16; // the cells still around the gem in the last minute
+        // A mound on the rail. Pieces peel from the outside in; piece k falls at minute `fall` (60 = the crust, it bursts on the hour).
+        const hourRockOf = (hourIdx) => {
+            const cells = Array.from({ length: 7 }, (_, i) => RAIL - 7 + i)
+                .flatMap((r) => Array.from({ length: 31 }, (_, i) => HR_C - 15 + i).map((c) => ({ r, c })))
+                .filter(({ r, c }) => !isHourGem(r, c))
+                .filter(({ r, c }) => {
+                    const dx = (c - HR_C) / 14.5;
+                    const dy = (RAIL - (r + 0.5)) / 7.3;
+                    return dx * dx + dy * dy + 0.25 * (seeded(hourIdx * 7.7 + r * 13.1 + c * 2.3) - 0.5) < 1;
+                });
+            // The rock under the gem counts as near it, so a pedestal holds the gem up to the end.
+            const depth = ({ r, c }) => {
+                const dy = r + 0.5 - HCORE.y / CH;
+                return Math.hypot((c - HR_C) / 1.8, dy > 0 ? dy * 0.4 : dy) + 1.2 * seeded(hourIdx * 5.9 + r * 3.1 + c * 7.7);
+            };
+            const removable = cells.length - CRUST;
+            return cells
+                .sort((a, b) => depth(b) - depth(a))
+                .map((cell, k) => ({
+                    ...cell,
+                    fall: k < removable ? 1 + Math.floor((k * 59) / removable) : 60,
+                    ch: ROCK[Math.floor(seeded(hourIdx * 2.9 + cell.r * 7 + cell.c * 1.3) * 4)],
+                    tone: seeded(hourIdx * 4.1 + cell.r * 5.7 + cell.c * 3.3) < 0.35 ? 'hk2' : 'hk',
+                }));
+        };
+        // gone: chunks knocked off so far. hot: the last minute. lift: rows still under the floor while a new rock rises.
+        const drawHourRock = (grid, rock, { gone, hot, beat, lift, fresh }) => {
+            const at = (r, c, ch, cls) => r + lift < RAIL && set(grid, r + lift, c, ch, cls);
+            const removed = rock.filter((cell) => cell.fall <= gone);
+            rock.forEach((cell) => {
+                if (cell.fall <= gone) return;
+                // Cracks run out from the gem: the next chunk to fall, and in the last minute glowing veins through the crust
+                const cracked = cell.fall === gone + 1 || (hot && seeded(cell.r * 3.3 + cell.c * 1.7) < 0.45);
+                const cls = hot ? (beat ? 'hotb' : 'hot') : cracked ? (fresh ? 'sp' : 'hc') : cell.tone;
+                at(cell.r, cell.c, cracked ? lineChar(coreAngle(cell.r, cell.c)) : cell.ch, cls);
+            });
+            // The gem shows where the rock around it has fallen away, and all of it in the last minute.
+            const shows = (g) => hot || removed.some((cell) => Math.abs(cell.r - g.r) <= 1 && Math.abs(cell.c - g.c) <= 3);
+            HGEM.forEach((g, i) =>
+                shows(g) ? at(g.r, g.c, g.ch, g.ch === ':' ? 'hdi' : 'hd') : at(g.r, g.c, ROCK[i % 4], 'hk')
+            );
+        };
+        // The chunks this minute's thump knocked loose tumble off the rock and burst into dust on the rail.
+        const drawFallingChunks = (grid, rock, minute, age) =>
+            rock
+                .filter((cell) => cell.fall === minute)
+                .forEach((cell) => {
+                    const vx = (cell.c < HR_C ? -1 : 1) * (1.2 + 2.5 * seeded(cell.r * 9.1 + cell.c));
+                    const vy = -(0.5 + 2 * seeded(cell.c * 4.3 + cell.r));
+                    const from = cellPt(cell);
+                    const land = (-vy + Math.sqrt(vy * vy + 56 * (GROUND - from.y))) / 28;
+                    if (age < land) return plot(grid, { x: from.x + vx * age, y: from.y + vy * age + 14 * age * age }, cell.ch, cell.tone);
+                    const dust = age - land;
+                    if (dust < 0.4)
+                        [-1, 0, 1].forEach((k) =>
+                            plot(grid, { x: from.x + vx * land + k * (0.4 + dust * 3), y: GROUND - 0.3 - dust }, dust < 0.15 ? 'o' : '.', 'du', true)
+                        );
+                });
+        // The last minute: embers drift up off the red-hot rock.
+        const drawEmbers = (grid, t) =>
+            Array.from({ length: 10 }, (_, i) => i).forEach((i) => {
+                const period = 1.6 + seeded(i * 7.1);
+                const q = ((t + i * 0.37) % period) / period;
+                const x = (HR_C - 8 + 16 * seeded(i * 3.9) + 0.5) * CW + 0.6 * Math.sin(t * 2 + i);
+                plot(grid, { x, y: (RAIL - 3 - q * 7) * CH }, q < 0.5 ? "'" : '.', q < 0.6 ? 'hotb' : 'hot', true);
+            });
+
+        // ---------- The new hour: the old rock bursts, its gem flies into the hour digits, a new rock rises ----------
+        // h is seconds into the hour.
+        const HOUR_TARGET = { x: (DX + 11) * CW, y: (DIGIT_TOP + 4.5) * CH };
+        const FLIGHT = [0.12, 1];
+        const RISE = [2.6, 4.2];
+        const RIPPLE_SPEED = 20; // em a second: the ring reaches the far digits in about 1.3 s
+        const RIPPLE_END = 1.5;
+        const gemFlightAt = (h) => bezier(HCORE, { x: HCORE.x + 5, y: 1 }, HOUR_TARGET, easeInOut(seg(h, FLIGHT[0], FLIGHT[1])));
+        const drawHourBurst = (grid, oldRock, h) => {
+            // A shock ring off the core
+            if (h < 0.8) {
+                const R = 1 + 16 * easeOut(h / 0.8);
+                Array.from({ length: 40 }, (_, i) => i * 9).forEach((a) =>
+                    plot(grid, { x: HCORE.x + Math.cos(a * RAD) * R, y: HCORE.y - Math.sin(a * RAD) * R * 0.55 }, h < 0.3 ? '*' : h < 0.55 ? '+' : '.', h < 0.4 ? 'sp' : 'du', true)
+                );
+            }
+            // The red-hot crust flies apart
+            if (h < 1.6) {
+                oldRock
+                    .filter((cell) => cell.fall === 60)
+                    .forEach((cell, i) => {
+                        const from = cellPt(cell);
+                        const d = Math.hypot(from.x - HCORE.x, from.y - HCORE.y) || 1;
+                        const v = 9 + 7 * seeded(i * 3.7 + 1);
+                        const pt = { x: from.x + ((from.x - HCORE.x) / d) * v * h, y: from.y + (((from.y - HCORE.y) / d) * v - 6) * h + 14 * h * h };
+                        if (pt.y < GROUND) plot(grid, pt, h < 0.15 ? '*' : cell.ch, h < 0.5 ? 'hotb' : h < 1 ? 'hot' : 'du');
+                    });
+            }
+            // The gem rises into the hour, a faint trail behind it
+            if (h >= FLIGHT[0] && h < FLIGHT[1]) {
+                [1, 2, 3].forEach((i) => {
+                    const q = h - i * 0.05;
+                    if (q > FLIGHT[0]) plot(grid, gemFlightAt(q), '.', 'hdi');
+                });
+                const { r, c } = cellOf(gemFlightAt(h));
+                put(grid, r, c - 1, '/^\\', 'hd');
+                put(grid, r + 1, c - 1, '\\v/', 'hd');
+            }
+            // Dust boils up at the foot of the new rock
+            const rd = h - RISE[0];
+            if (rd >= 0 && rd < 1.9) {
+                Array.from({ length: 12 }, (_, i) => i).forEach((i) => {
+                    const q = (rd * 1.6 + seeded(i * 2.1)) % 1;
+                    const x = HR_C + (i % 2 ? 1 : -1) * (12 + 4 * q + 2 * seeded(i * 1.7)) + 0.5;
+                    plot(grid, { x: x * CW, y: (RAIL - 0.5 - q * 2.5) * CH }, q < 0.4 ? 'o' : '.', 'du', true);
+                });
+            }
+        };
+        // The blast: one ring of gold light runs out from the diamond through the digits and is gone.
+        const rippleDigits = (grid, h) => {
+            const R = h * RIPPLE_SPEED;
+            grid.forEach((row, r) =>
+                row.forEach((cell, c) => {
+                    if (cell.cls !== 'd' && cell.cls !== 'dl') return;
+                    if (Math.abs(Math.hypot((c + 0.5) * CW - HCORE.x, (r + 0.5) * CH - HCORE.y) - R) < 1.2) cell.cls = 'dg';
+                })
+            );
         };
 
         // ---------- Water dripping from the stalactites ----------
@@ -487,6 +696,21 @@
             const heights = pileHeights(sec);
             if (!(cart && cart.x === CART_PARK)) drawPile(grid, heights);
 
+            // The hour rock. Each minute's boulder landing knocks a chunk off; minute 59 is red-hot; it bursts on the hour.
+            const minute = date.getMinutes();
+            const hourIdx = Math.floor((minuteIdx - date.getTimezoneOffset()) / 60);
+            const h = minute === 0 ? m : Infinity;
+            const thumpAge = m - DROP[1];
+            const hot = minute === 59;
+            // The pulse quickens through the last minute, from 1 to 4 beats a second.
+            const beat = hot && (m + (1.5 * m * m) / 60) % 1 < 0.25;
+            const lift = h < RISE[0] ? RAIL : h < RISE[1] ? Math.round((1 - easeOut(seg(h, RISE[0], RISE[1]))) * 8) : 0;
+            const hourRock = hourRockOf(hourIdx);
+            const gone = thumpAge >= 0 ? minute : minute - 1;
+            drawHourRock(grid, hourRock, { gone, hot, beat, lift, fresh: thumpAge >= 0 && thumpAge < 0.15 });
+            if (hot) drawEmbers(grid, t);
+            if (minute > 0 && thumpAge >= 0 && thumpAge < 1.6) drawFallingChunks(grid, hourRock, minute, thumpAge);
+
             // Dust puff behind everything that stands in front of the wall
             if (p > 0.02 && p < 0.55) {
                 const life = seg(p, 0.02, 0.55);
@@ -503,6 +727,8 @@
                 return x + BIG[ch][0].length + DIGIT_GAP;
             }, DX);
 
+            if (h < RISE[1]) drawHourBurst(grid, hourRockOf(hourIdx - 1), h);
+
             // The boulder. Hit n of the minute lands at :n; the 60th (at :00) frees the gem.
             const boulder = boulderOf(minuteIdx);
             if (sec > 0) {
@@ -512,7 +738,7 @@
                 else GEM.forEach((g, i) => set(grid, g.r, g.c, ROCK[(i + minuteIdx) % 4], 'k'));
             } else {
                 if (p < 0.2) drawGem(grid, { x: GEM_HOME.x, y: GEM_HOME.y - 0.7 * Math.sin((Math.PI * p) / 0.2) }, 'g', p < 0.1);
-                if (p >= 0.5 && p < 0.6) drawGem(grid, { x: ABOVE_HOPPER.x, y: lerp(ABOVE_HOPPER.y + CH, (RAIL - 2 + 0.5) * CH, easeIn2(seg(p, 0.5, 0.6))) }, 'g', false);
+                if (p >= 0.5 && p < 0.6) drawGem(grid, { x: ABOVE_HOPPER.x, y: lerp(ABOVE_HOPPER.y + CH, (RAIL - 4 + 0.5) * CH, easeIn2(seg(p, 0.5, 0.6))) }, 'g', false);
                 if (p >= DROP[0]) {
                     const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * (RAIL - 8));
                     drawBoulder(grid, boulder, 0, p, drop);
@@ -544,7 +770,7 @@
                 const from = cellPt(piece);
                 const col = PILE_X + ((flyK * 3) % PILE_W);
                 const to = sec === 0 || sec >= 58
-                    ? { x: (CART_PARK + 3.5) * CW, y: (RAIL - 2 + 0.5) * CH }
+                    ? { x: (CART_PARK + 3.5) * CW, y: (RAIL - 4 + 0.5) * CH }
                     : { x: (col + 0.5) * CW, y: (RAIL - 1 - (heights[col - PILE_X] || 0) + 0.5) * CH };
                 const T = 0.5;
                 const vy = (to.y - from.y - 14 * T * T) / T;
@@ -615,7 +841,7 @@
                         return;
                     }
                     const isEye = r === EYE.r && c === EYE.c;
-                    const glyph = isEye ? (blink ? '-' : squint ? '>' : 'o') : ch;
+                    const glyph = isEye ? (h < 1.6 ? 'O' : blink ? '-' : squint ? '>' : 'o') : ch;
                     const cls = ch === '@' ? 'l' : r <= 1 ? 'h' : r <= 3 ? 's' : ch === '#' ? 'o' : 'b';
                     set(grid, BODY_TOP + r, BODY_X + c + shift, glyph, cls);
                 });
@@ -657,10 +883,15 @@
                 if (!inDigits(r, c) && light(pt) > 0.05) plot(grid, pt, '.', 'm', true);
             });
 
+            if (h < RIPPLE_END) rippleDigits(grid, h);
+
             // A flash on every strike, and a thump when the new boulder lands
             const flash = p < 0.3 ? Math.pow(1 - p / 0.3, 2) : 0;
             const thump = sec === 0 && p >= DROP[1] && p < DROP[1] + 0.06;
-            return { grid, lamp, beta, half: HALF, len: LEN, p, flash, thump };
+            // The hour: a white flash as the rock bursts and a smaller one as the gem lands; one short jolt
+            const burst = h < 0.4 ? Math.pow(1 - h / 0.4, 2) : h >= FLIGHT[1] && h < FLIGHT[1] + 0.2 ? 0.5 * (1 - (h - FLIGHT[1]) / 0.2) : 0;
+            const quake = h < 0.4 ? 1 - h / 0.4 : 0;
+            return { grid, lamp, beta, half: HALF, len: LEN, p, flash, thump, burst, quake };
         };
 
         const toText = (grid) => grid.map((row) => row.map((c) => c.ch).join('')).join('\n');
@@ -806,7 +1037,7 @@
                     scene.innerHTML = html;
                     lastHtml = html;
                 }
-                const { lamp, beta, half, len, p, flash, thump } = frame;
+                const { lamp, beta, half, len, p, flash, thump, burst, quake } = frame;
                 const a = dirOf(beta - half);
                 const b = dirOf(beta + half);
                 beam.style.clipPath = `polygon(${em(lamp.x)} ${em(lamp.y)}, ${em(lamp.x + a.x * len)} ${em(lamp.y + a.y * len)}, ${em(lamp.x + b.x * len)} ${em(lamp.y + b.y * len)})`;
@@ -814,7 +1045,10 @@
                 beam.style.opacity = (0.7 + 0.3 * flash).toFixed(3);
                 halo.style.opacity = (0.6 + 0.4 * flash).toFixed(3);
                 halo.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,235,180,0.45), rgba(255,200,120,0) 1.6em)`;
-                stage.style.transform = thump ? 'translate(0, 0.06em)' : p < 0.04 ? 'translate(-0.04em, 0.025em)' : p < 0.08 ? 'translate(0.025em, -0.015em)' : '';
+                stage.style.filter = burst > 0.01 ? `brightness(${(1 + 1.4 * burst).toFixed(2)})` : '';
+                stage.style.transform = quake > 0
+                    ? `translate(${(Math.sin(now / 13) * 0.08 * quake).toFixed(3)}em, ${(Math.cos(now / 17) * 0.05 * quake).toFixed(3)}em)`
+                    : thump ? 'translate(0, 0.06em)' : p < 0.04 ? 'translate(-0.04em, 0.025em)' : p < 0.08 ? 'translate(0.025em, -0.015em)' : '';
             };
 
             let wakeLock = null;
