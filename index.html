@@ -86,6 +86,14 @@
         .sgt { color: #ffe9b8; text-shadow: 0 0 0.25em rgba(255, 200, 120, 0.7); }
         .sgu { color: #ff6a48; text-shadow: 0 0 0.3em #ff4a28, 0 0 0.8em rgba(255, 60, 30, 0.6); }
         .sgr { color: #b8321e; text-shadow: 0 0 0.3em rgba(255, 60, 30, 0.5); }
+        /* calendar status, bottom right */
+        #status {
+            position: fixed;
+            right: 12px;
+            bottom: 8px;
+            font: 11px Menlo, 'Courier New', monospace;
+            color: #5e4a36;
+        }
     </style>
 </head>
 <body>
@@ -93,6 +101,7 @@
         <div id="beam-wrap"><div id="beam"></div><div id="halo"></div></div>
         <pre id="scene"></pre>
     </div>
+    <div id="status"></div>
     <script>
         // ---------- Geometry. Everything is in cells or in em (a cell is 0.6em x 1.1em). ----------
         const CW = 0.6;
@@ -680,10 +689,20 @@
             }
             const feeds = (fromHash || readStored()).split(',').map((u) => u.trim()).filter(Boolean);
 
+            // Status in the corner: is a calendar linked, did the last fetch work, which version is this.
+            const VERSION = 'v5';
+            const statusEl = document.getElementById('status');
+            const showStatus = (text) => (statusEl.textContent = `${text} · ${VERSION}`);
+            showStatus(feeds.length ? `cal: loading ${feeds.length} feed(s)` : 'cal: no calendar linked');
+
             const calendar = { events: [], beeped: new Set() };
             const poll = async () => {
                 const results = await Promise.allSettled(feeds.map((url) => fetch(url, { cache: 'no-store' }).then((r) => r.json())));
                 const ok = results.filter((r) => r.status === 'fulfilled' && Array.isArray(r.value.events));
+                const failed = results.find((r) => r.status === 'rejected');
+                const at = new Date();
+                const count = ok.reduce((n, r) => n + r.value.events.length, 0);
+                showStatus(`cal ${ok.length}/${feeds.length} ok · ${count} event(s) · ${pad(at.getHours())}:${pad(at.getMinutes())}${failed ? ` · error: ${failed.reason}` : ''}`);
                 if (!ok.length) return; // keep the last good events
                 // The same meeting on both calendars shows once.
                 const merged = ok.flatMap((r) => r.value.events);
