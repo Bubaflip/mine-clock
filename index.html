@@ -86,14 +86,34 @@
         .sgt { color: #ffe9b8; text-shadow: 0 0 0.25em rgba(255, 200, 120, 0.7); }
         .sgu { color: #ff6a48; text-shadow: 0 0 0.3em #ff4a28, 0 0 0.8em rgba(255, 60, 30, 0.6); }
         .sgr { color: #b8321e; text-shadow: 0 0 0.3em rgba(255, 60, 30, 0.5); }
-        /* calendar status, bottom right */
-        #status {
+        /* the last 2 minutes before a meeting: a big banner in the band under the cave */
+        #banner {
             position: fixed;
-            right: 12px;
-            bottom: 8px;
-            font: 11px Menlo, 'Courier New', monospace;
-            color: #5e4a36;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: Menlo, 'Courier New', monospace;
+            font-weight: 700;
+            color: #ff6a48;
+            text-shadow: 0 0 0.2em #ff4a28, 0 0 0.6em rgba(255, 60, 30, 0.6);
+            animation: pulse 1s ease-in-out infinite;
+            pointer-events: none;
         }
+        #banner.on { display: flex; }
+        #banner-title {
+            max-width: 92vw;
+            padding: 0.3em 0.6em;
+            box-sizing: border-box;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        #banner-when { font-size: 0.6em; color: #ffe9b8; }
+        @keyframes pulse { 50% { opacity: 0.55; } }
     </style>
 </head>
 <body>
@@ -101,7 +121,7 @@
         <div id="beam-wrap"><div id="beam"></div><div id="halo"></div></div>
         <pre id="scene"></pre>
     </div>
-    <div id="status"></div>
+    <div id="banner"><div id="banner-title"></div><div id="banner-when"></div></div>
     <script>
         // ---------- Geometry. Everything is in cells or in em (a cell is 0.6em x 1.1em). ----------
         const CW = 0.6;
@@ -665,9 +685,20 @@
             const beam = document.getElementById('beam');
             const halo = document.getElementById('halo');
 
+            const banner = document.getElementById('banner');
+            const bannerTitle = document.getElementById('banner-title');
+            const bannerWhen = document.getElementById('banner-when');
+            let bannerKey = '';
+
             const fit = () => {
                 const size = Math.min((window.innerWidth * 0.95) / (COLS * 0.602), (window.innerHeight * 0.9) / (ROWS * CH));
                 stage.style.fontSize = `${size}px`;
+                // The banner fills the empty band under the cave; on a wide screen with no band it overlaps the rail.
+                // The scene is centred: its bottom sits half its height below the middle of the screen.
+                const band = Math.max((window.innerHeight - ROWS * CH * size) / 2, window.innerHeight * 0.18);
+                banner.style.height = `${band}px`;
+                banner.style.fontSize = `${band * 0.36}px`;
+                bannerKey = ''; // re-fit the title on the next frame
             };
 
             // Calendar feeds: Apps Script URLs from #feeds=<url>,<url>, remembered on this device.
@@ -689,20 +720,10 @@
             }
             const feeds = (fromHash || readStored()).split(',').map((u) => u.trim()).filter(Boolean);
 
-            // Status in the corner: is a calendar linked, did the last fetch work, which version is this.
-            const VERSION = 'v5';
-            const statusEl = document.getElementById('status');
-            const showStatus = (text) => (statusEl.textContent = `${text} · ${VERSION}`);
-            showStatus(feeds.length ? `cal: loading ${feeds.length} feed(s)` : 'cal: no calendar linked');
-
             const calendar = { events: [], beeped: new Set() };
             const poll = async () => {
                 const results = await Promise.allSettled(feeds.map((url) => fetch(url, { cache: 'no-store' }).then((r) => r.json())));
                 const ok = results.filter((r) => r.status === 'fulfilled' && Array.isArray(r.value.events));
-                const failed = results.find((r) => r.status === 'rejected');
-                const at = new Date();
-                const count = ok.reduce((n, r) => n + r.value.events.length, 0);
-                showStatus(`cal ${ok.length}/${feeds.length} ok · ${count} event(s) · ${pad(at.getHours())}:${pad(at.getMinutes())}${failed ? ` · error: ${failed.reason}` : ''}`);
                 if (!ok.length) return; // keep the last good events
                 // The same meeting on both calendars shows once.
                 const merged = ok.flatMap((r) => r.value.events);
@@ -747,6 +768,24 @@
                 }
             };
 
+            // The banner: from 2 minutes before the start, with a seconds countdown, through the "NOW" minute.
+            const showBanner = (meeting, now) => {
+                const left = meeting ? meeting.start - now : Infinity;
+                const on = left <= BEEP_MS;
+                const secs = Math.ceil(left / 1000);
+                const when = secs > 0 ? `in ${Math.floor(secs / 60)}:${pad(secs % 60)}` : 'NOW';
+                const key = on ? `${meeting.title}|${when}` : '';
+                if (key === bannerKey) return;
+                bannerKey = key;
+                banner.classList.toggle('on', on);
+                if (!on) return;
+                bannerTitle.textContent = meeting.title;
+                // A long title shrinks to fit the width (down to 40%, then it is cut with an ellipsis).
+                const base = parseFloat(banner.style.fontSize) || 40;
+                bannerTitle.style.fontSize = `${Math.max(0.4, Math.min(1, (window.innerWidth * 0.8) / (0.6 * meeting.title.length * base)))}em`;
+                bannerWhen.textContent = `${pad(new Date(meeting.start).getHours())}:${pad(new Date(meeting.start).getMinutes())}  ${when}`;
+            };
+
             const em = (v) => `${(v + 2).toFixed(2)}em`;
             let lastHtml = '';
             // 30 frames a second: half the work of the screen's 60, and the cells barely look different.
@@ -757,7 +796,9 @@
                 if (t - lastFrame < FRAME_MS - 4) return; // the slack keeps it on every other 60 Hz frame despite timing jitter
                 lastFrame = t;
                 const now = Date.now();
-                const frame = renderScene(now, nextMeeting(now, calendar.events));
+                const meeting = nextMeeting(now, calendar.events);
+                showBanner(meeting, now);
+                const frame = renderScene(now, meeting);
                 const html = toHtml(frame.grid);
                 if (html !== lastHtml) {
                     scene.innerHTML = html;
