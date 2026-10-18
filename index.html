@@ -81,6 +81,10 @@
         .ra { color: #5e4a36; }
         .dr { color: #7fbedc; text-shadow: 0 0 0.3em rgba(127, 190, 220, 0.6); }
         .m  { color: #ffe3a3; opacity: 0.55; }
+        /* calendar sign */
+        .sg  { color: #8a5a2b; }
+        .sgt { color: #ffe9b8; text-shadow: 0 0 0.25em rgba(255, 200, 120, 0.7); }
+        .sgu { color: #ff7a50; text-shadow: 0 0 0.3em #ff5a30, 0 0 0.8em rgba(255, 90, 40, 0.6); }
     </style>
 </head>
 <body>
@@ -394,8 +398,42 @@
                 }
             });
 
+        // ---------- Calendar alerts: a wooden sign under the time while a reminder is due ----------
+        const LATE_MIN = 10; // the sign stays up this long after the event starts, unless tapped away
+        const eventKey = (ev) => `${ev.id}|${ev.start}`;
+        const alertAt = (nowMs, events, dismissed) => {
+            const due = events
+                .filter((ev) => !dismissed.has(eventKey(ev)))
+                .filter((ev) => nowMs >= ev.start - Math.max(...ev.reminders) * 60000 && nowMs < ev.start + LATE_MIN * 60000)
+                .sort((a, b) => a.start - b.start);
+            return due.length ? { event: due[0], more: due.length - 1 } : null;
+        };
+        // Accents dropped, anything else outside printable ASCII removed: every glyph must be one cell wide.
+        const ascii = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, '').replace(/\s+/g, ' ').trim();
+        const SIGN = { r: DIGIT_TOP + DIGIT_H, c: 1, w: 34 };
+        const drawSign = (grid, { event, more }, nowMs) => {
+            const inner = SIGN.w - 4;
+            const mins = Math.ceil((event.start - nowMs) / 60000);
+            const status = mins > 1 ? `in ${mins} min` : mins === 1 ? 'in 1 min' : nowMs < event.start + 60000 ? 'NOW' : `started ${Math.floor((nowMs - event.start) / 60000)} min ago`;
+            const start = new Date(event.start);
+            const lines = [
+                `${pad(start.getHours())}:${pad(start.getMinutes())}  ${ascii(event.title)}`,
+                more > 0 ? `${status}  +${more} more` : status,
+            ].map((s) => (s.length > inner ? `${s.slice(0, inner - 1)}~` : s.padEnd(inner)));
+            const urgent = mins <= 1 && nowMs % 1000 < 500;
+            const edge = '-'.repeat(SIGN.w - 2);
+            Array.from({ length: 4 }, (_, i) => grid[SIGN.r + i].slice(SIGN.c, SIGN.c + SIGN.w)).flat().forEach((cell) => Object.assign(cell, { ch: ' ', cls: '' }));
+            put(grid, SIGN.r, SIGN.c, `.${edge}.`, 'sg');
+            lines.forEach((line, i) => {
+                put(grid, SIGN.r + 1 + i, SIGN.c, '| ', 'sg');
+                put(grid, SIGN.r + 1 + i, SIGN.c + 2, line, urgent && i === 1 ? 'sgu' : 'sgt');
+                put(grid, SIGN.r + 1 + i, SIGN.c + SIGN.w - 2, ' |', 'sg');
+            });
+            put(grid, SIGN.r + 3, SIGN.c, `'${edge}'`, 'sg');
+        };
+
         // ---------- The whole frame ----------
-        const renderScene = (nowMs) => {
+        const renderScene = (nowMs, alert = null) => {
             const date = new Date(nowMs);
             const p = (nowMs % 1000) / 1000;
             const secIdx = Math.floor(nowMs / 1000);
@@ -406,6 +444,7 @@
 
             drawCave(grid);
             drawDrips(grid, t);
+            if (alert) drawSign(grid, alert, nowMs);
 
             const m = sec + p;
             const cart = cartAt(m);
@@ -619,10 +658,80 @@
                 stage.style.fontSize = `${size}px`;
             };
 
+            // Calendar feeds: Apps Script URLs from #feeds=<url>,<url>, remembered on this device.
+            const FEEDS_KEY = 'mineClockFeeds';
+            const readStored = () => {
+                try {
+                    return localStorage.getItem(FEEDS_KEY) || '';
+                } catch (e) {
+                    return '';
+                }
+            };
+            const fromHash = new URLSearchParams(location.hash.slice(1)).get('feeds') || '';
+            if (fromHash) {
+                try {
+                    localStorage.setItem(FEEDS_KEY, fromHash);
+                } catch (e) {
+                    // The hash still works for this session.
+                }
+            }
+            const feeds = (fromHash || readStored()).split(',').map((u) => u.trim()).filter(Boolean);
+
+            const calendar = { events: [], dismissed: new Set(), chimed: new Set() };
+            const poll = async () => {
+                const results = await Promise.allSettled(feeds.map((url) => fetch(url, { cache: 'no-store' }).then((r) => r.json())));
+                const ok = results.filter((r) => r.status === 'fulfilled' && Array.isArray(r.value.events));
+                if (!ok.length) return; // keep the last good events
+                // The same meeting on both calendars shows once.
+                const merged = ok.flatMap((r) => r.value.events);
+                calendar.events = merged.filter((ev, i) => merged.findIndex((o) => o.start === ev.start && o.title === ev.title) === i);
+            };
+
+            // A two-tone ding. Browsers only allow sound after a tap, so the first tap unlocks it.
+            let audio = null;
+            const unlockAudio = () => {
+                try {
+                    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+                    audio.resume();
+                } catch (e) {
+                    // No sound: the sign still shows.
+                }
+            };
+            const chime = () => {
+                if (!audio || audio.state !== 'running') return;
+                [[1320, 0], [990, 0.22]].forEach(([freq, delay]) => {
+                    const at = audio.currentTime + delay;
+                    const osc = audio.createOscillator();
+                    const gain = audio.createGain();
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0.0001, at);
+                    gain.gain.exponentialRampToValueAtTime(0.4, at + 0.01);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, at + 1.2);
+                    osc.connect(gain).connect(audio.destination);
+                    osc.start(at);
+                    osc.stop(at + 1.3);
+                });
+            };
+            // Chime once at each reminder time and at the start, if the sign has not been tapped away.
+            const checkChimes = () => {
+                const now = Date.now();
+                calendar.events
+                    .filter((ev) => !calendar.dismissed.has(eventKey(ev)))
+                    .flatMap((ev) => [...ev.reminders, 0].map((min) => ({ key: `${eventKey(ev)}@${min}`, at: ev.start - min * 60000 })))
+                    .filter(({ key, at }) => now >= at && now < at + 60000 && !calendar.chimed.has(key))
+                    .forEach(({ key }) => {
+                        calendar.chimed.add(key);
+                        chime();
+                    });
+            };
+
             const em = (v) => `${(v + 2).toFixed(2)}em`;
             let lastHtml = '';
+            let shown = null;
             const tick = () => {
-                const frame = renderScene(Date.now());
+                const now = Date.now();
+                shown = alertAt(now, calendar.events, calendar.dismissed);
+                const frame = renderScene(now, shown);
                 const html = toHtml(frame.grid);
                 if (html !== lastHtml) {
                     scene.innerHTML = html;
@@ -657,10 +766,20 @@
                 if (document.visibilityState === 'visible') keepAwake();
             });
             document.addEventListener('pointerdown', keepAwake);
+            // A tap unlocks sound, and puts away the sign that is showing.
+            document.addEventListener('pointerdown', () => {
+                unlockAudio();
+                if (shown) calendar.dismissed.add(eventKey(shown.event));
+            });
 
             fit();
             keepAwake();
             tick();
+            if (feeds.length) {
+                poll();
+                setInterval(poll, 2 * 60 * 1000);
+                setInterval(checkChimes, 1000);
+            }
         };
 
         if (typeof document !== 'undefined') start();
