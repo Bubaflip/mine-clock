@@ -730,7 +730,13 @@
 
             const em = (v) => `${(v + 2).toFixed(2)}em`;
             let lastHtml = '';
-            const tick = () => {
+            // 30 frames a second: half the work of the screen's 60, and the cells barely look different.
+            const FRAME_MS = 1000 / 30;
+            let lastFrame = -Infinity;
+            const tick = (t = 0) => {
+                requestAnimationFrame(tick);
+                if (t - lastFrame < FRAME_MS - 4) return; // the slack keeps it on every other 60 Hz frame despite timing jitter
+                lastFrame = t;
                 const now = Date.now();
                 const frame = renderScene(now, nextMeeting(now, calendar.events));
                 const html = toHtml(frame.grid);
@@ -747,7 +753,6 @@
                 halo.style.opacity = (0.6 + 0.4 * flash).toFixed(3);
                 halo.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,235,180,0.45), rgba(255,200,120,0) 1.6em)`;
                 stage.style.transform = thump ? 'translate(0, 0.06em)' : p < 0.04 ? 'translate(-0.04em, 0.025em)' : p < 0.08 ? 'translate(0.025em, -0.015em)' : '';
-                requestAnimationFrame(tick);
             };
 
             let wakeLock = null;
