@@ -294,14 +294,18 @@
             });
         };
 
-        // ---------- Rubble pile: grows as each knocked-off piece lands on it, loaded into the cart when it parks ----------
-        // Pieces 0-27 land on the pile (piece k at :2k+2.5); the last two go straight into the cart.
-        const PILED = 28;
-        const landedBy = (m) => Math.min(PILED, Math.max(0, Math.floor((m - 2.5) / 2) + 1));
+        // ---------- Rubble pile: grows through the hour, loaded into the cart when the robot parks just before it ----------
+        // Piece k lands at :2k+2.5; the last one, knocked off by the strike at :00, lands at :00.5 of the next minute.
+        const SHELL = 30;
+        const PILE_LAYERS = [8, 7, 6, 5, 4];
+        const PILE_CAP = PILE_LAYERS.reduce((a, b) => a + b, 0);
+        const HOUR_PIECES = 60 * SHELL;
+        const landedBy = (minute, m) =>
+            (minute > 0 ? minute * SHELL - (m < 0.5 ? 1 : 0) : 0) + Math.min(SHELL - 1, Math.max(0, Math.floor((m - 2.5) / 2) + 1));
         const pileHeights = (landed) => {
-            const n = Math.round((landed * 20) / PILED);
-            const widths = [Math.min(n, 8), Math.min(Math.max(n - 8, 0), 6), Math.min(Math.max(n - 14, 0), 4), Math.min(Math.max(n - 18, 0), 2)];
-            return Array.from({ length: 8 }, (_, i) => widths.filter((w) => i < w).length);
+            const n = Math.floor((landed * PILE_CAP) / HOUR_PIECES);
+            const widths = PILE_LAYERS.map((w, i) => Math.min(w, Math.max(0, n - PILE_LAYERS.slice(0, i).reduce((a, b) => a + b, 0))));
+            return Array.from({ length: PILE_W }, (_, i) => widths.filter((w) => i < w).length);
         };
         const drawPile = (grid, heights) =>
             heights.forEach((h, i) =>
@@ -309,6 +313,17 @@
                     set(grid, RAIL - 1 - k, PILE_X + i, "o.,o'o"[Math.floor(seeded(i * 5 + k * 13) * 6)], 'p')
                 )
             );
+
+        // Each minute's gem hops onto the pile at :00.5 and glints on top of it until the rubble covers it.
+        const GEM_LAND = 0.5;
+        const pileGemOf = (i) => {
+            const c = Math.floor(seeded(i * 7.7) * PILE_W);
+            return { i, c, level: pileHeights(i * SHELL)[c] };
+        };
+        const drawPileGems = (grid, heights, minute, m) =>
+            Array.from({ length: minute }, (_, j) => pileGemOf(j + 1))
+                .filter((g) => (g.i < minute || m >= GEM_LAND) && heights[g.c] <= g.level)
+                .forEach((g) => set(grid, RAIL - 1 - g.level, PILE_X + g.c, '*', g.i === minute ? 'g' : 'gd'));
 
         // ---------- Flying chips: simple ballistics with two bounces ----------
         const GROUND = RAIL * CH - 0.05;
@@ -333,7 +348,6 @@
         };
 
         // ---------- The boulder: one per minute. 30 pieces, each cracked by one hit and knocked off by the next ----------
-        const SHELL = 30;
         const GEM = [[0, -1, '/'], [0, 0, '^'], [0, 1, '\\'], [1, -1, '\\'], [1, 0, 'v'], [1, 1, '/']].map(([dr, dc, ch]) => ({ r: RAIL - 2 + dr, c: GC + dc, ch }));
         const isGemCell = (r, c) => GEM.some((g) => g.r === r && g.c === c);
         const ROCK = '#%@&';
@@ -379,7 +393,7 @@
             );
         const GEM_HOME = { x: (GC + 0.5) * CW, y: (RAIL - 2 + 0.5) * CH };
 
-        // ---------- The robot cart. dir: 1 driving in, -1 backing out ----------
+        // ---------- The robot cart: once an hour, for the red gem of minute 59. dir: 1 driving in, -1 backing out ----------
         // Every step lands on the beat of the pick (whole seconds) or on its upswing (half seconds):
         //   :56  rolls in, braking through :57      :58  parks on the strike, scoops the pile
         //   :59.2  reaches out, still by :59.8      :00  strike frees the gem, claw shuts as it settles (:00.2)
@@ -445,7 +459,11 @@
             }
 
             // Tub, load and the gem riding on top
-            if (cart.full) put(grid, RAIL - 4, x + 1, '.o%#o.', 'p');
+            if (cart.full) {
+                put(grid, RAIL - 4, x + 1, '.o%#o.', 'p');
+                // the hour's gems glint in the load
+                [x + 1, x + 6].forEach((c) => set(grid, RAIL - 4, c, '*', 'g'));
+            }
             if (cart.gem) put(grid, RAIL - 4, x + 2, '/^\\', gemCls);
             put(grid, RAIL - 3, x, '|=', 'ca');
             put(grid, RAIL - 3, x + 2, 'o', 'wh');
@@ -738,14 +756,19 @@
             if (meeting) drawSign(grid, meeting, nowMs);
 
             const m = sec + p;
-            const cart = cartAt(m);
+            const minute = date.getMinutes();
+            // The robot only comes for the hour: it rolls in at :56 of minute 59 and is gone by :04.
+            const cart = (minute === 59 && m >= ARRIVE[0]) || (minute === 0 && m < LEAVE[1]) ? cartAt(m) : null;
+            const parked = cart && cart.x === CART_PARK;
 
-            // Rubble pile: grows as each piece lands on it, scooped up by the cart when it parks
-            const heights = pileHeights(landedBy(m));
-            if (!(cart && cart.x === CART_PARK)) drawPile(grid, heights);
+            // Rubble pile: grows through the hour with the gems on it, scooped up by the cart when it parks
+            const heights = pileHeights(landedBy(minute, m));
+            if (!parked) {
+                drawPile(grid, heights);
+                drawPileGems(grid, heights, minute, m);
+            }
 
             // The hour: minute 59's gem is red, and the strike at the top of the hour sets it off.
-            const minute = date.getMinutes();
             const h = minute === 0 ? m : Infinity;
             const red = minute === 59 || (minute === 0 && m < LEAVE[1]);
             const gemCls = red ? 'rg' : 'g';
@@ -790,8 +813,14 @@
                 if (cls) drawGem(grid, GEM_HOME, cls, sec >= 50 && p < 0.12);
                 else GEM.forEach((g, i) => set(grid, g.r, g.c, ROCK[(i + minuteIdx) % 4], 'k'));
             } else {
-                // The strike frees the gem: it hops in its seat and settles into the claw
-                if (p < GRAB) drawGem(grid, { x: GEM_HOME.x, y: GEM_HOME.y - 0.7 * Math.sin((Math.PI * p) / GRAB) }, gemCls, p < 0.1);
+                // The strike frees the gem. Most minutes it hops onto the pile; on the hour it settles into the claw.
+                if (!cart && p < GEM_LAND) {
+                    const g = pileGemOf(minute);
+                    const to = { x: (PILE_X + g.c + 0.5) * CW, y: (RAIL - 2 - g.level + 0.5) * CH };
+                    const apex = { x: (GEM_HOME.x + to.x) / 2, y: (RAIL - 7) * CH };
+                    drawGem(grid, bezier(GEM_HOME, apex, to, easeInOut(p / GEM_LAND)), 'g', p < 0.1);
+                }
+                if (cart && p < GRAB) drawGem(grid, { x: GEM_HOME.x, y: GEM_HOME.y - 0.7 * Math.sin((Math.PI * p) / GRAB) }, gemCls, p < 0.1);
                 if (p >= DROP[0]) {
                     const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * (RAIL - 8));
                     drawBoulder(grid, boulder, 0, p, drop);
@@ -823,11 +852,12 @@
                 const piece = (sec === 0 ? boulderOf(minuteIdx - 1) : boulder).find((cell) => cell.k === flyK);
                 const from = cellPt(piece);
                 // It lands on the very cell the pile grows by (or on top of the pile when it does not grow)
-                const before = pileHeights(flyK);
-                const after = pileHeights(flyK + 1);
+                const landed = landedBy(minute, m);
+                const before = pileHeights(landed);
+                const after = pileHeights(landed + 1);
                 const grows = after.findIndex((n, i) => n > before[i]);
                 const i = grows >= 0 ? grows : (flyK * 3) % PILE_W;
-                const to = sec === 0 || sec >= 58
+                const to = parked
                     ? { x: (CART_PARK + 3.5) * CW, y: (RAIL - 4 + 0.5) * CH }
                     : { x: (PILE_X + i + 0.5) * CW, y: (RAIL - 1 - before[i] + 0.5) * CH };
                 const T = 0.5;
