@@ -628,14 +628,14 @@
         };
 
         // ---------- Water dripping from the stalactites ----------
-        // Each stalactite has its own whole-second period, and every drop lands on a half second, between two strikes.
-        const DRIP_PERIODS = [7, 11, 9, 13];
+        // One drop every 20 s (3 a minute), the stalactites taking turns; every drop lands on a half second, between two strikes.
+        const DRIP_EVERY = 20;
         const drawDrips = (grid, t) =>
             DRIP_COLS.forEach((c, i) => {
                 const floor = c > DIGITS_END ? LEDGE : RAIL; // the drip over the ledge lands on it
                 const fall = Math.sqrt((2 * (floor * CH - 0.05 - 2 * CH)) / 30);
-                const period = DRIP_PERIODS[i];
-                const q = (t + 0.7 + fall + i) % period;
+                if (Math.floor((t + 0.7 + fall) / DRIP_EVERY) % DRIP_COLS.length !== i) return;
+                const q = (t + 0.7 + fall) % DRIP_EVERY;
                 const fallY = 2 * CH + 0.5 * 30 * Math.pow(q - 1.2, 2);
                 if (q < 1.2) set(grid, 2, c, q < 0.6 ? '.' : ',', 'dr', true);
                 else if (fallY < floor * CH - 0.05) plot(grid, { x: (c + 0.5) * CW, y: fallY }, q - 1.2 < 0.15 ? ',' : "'", 'dr', true);
