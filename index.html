@@ -30,14 +30,14 @@
             position: relative;
             font-family: Menlo, 'Courier New', monospace;
         }
-        #beam-wrap {
+        #glow-wrap {
             position: absolute;
             inset: 0;
             overflow: hidden;
             filter: blur(0.5em);
             pointer-events: none;
         }
-        #beam, #halo {
+        #beam, #glow, #stack-glow {
             position: absolute;
             inset: -2em;
         }
@@ -96,6 +96,15 @@
         .ra { color: #5e4a36; }
         .dr { color: #7fbedc; text-shadow: 0 0 0.3em rgba(127, 190, 220, 0.6); }
         .m  { color: #ffe3a3; opacity: 0.55; }
+        /* the crystal's light: through the cracks, and in rays out of the gaps (red in minute 59) */
+        .kg1 { color: #e9b45e; text-shadow: 0 0 0.25em rgba(255, 190, 90, 0.45); }
+        .kg2 { color: #ffe6a8; text-shadow: 0 0 0.25em rgba(255, 214, 120, 0.9), 0 0 0.7em rgba(255, 170, 60, 0.5); }
+        .kr1 { color: #e0704f; text-shadow: 0 0 0.25em rgba(255, 80, 50, 0.45); }
+        .kr2 { color: #ffb09a; text-shadow: 0 0 0.25em rgba(255, 90, 60, 0.9), 0 0 0.7em rgba(255, 50, 30, 0.5); }
+        .ry1 { color: #ffd98a; opacity: 0.3; }
+        .ry2 { color: #ffe9bd; opacity: 0.6; text-shadow: 0 0 0.3em rgba(255, 210, 120, 0.7); }
+        .rr1 { color: #ff8a6a; opacity: 0.3; }
+        .rr2 { color: #ffc0ad; opacity: 0.6; text-shadow: 0 0 0.3em rgba(255, 80, 50, 0.7); }
         /* calendar sign */
         .sg  { color: #8a5a2b; }
         .sgt { color: #ffe9b8; text-shadow: 0 0 0.25em rgba(255, 200, 120, 0.7); }
@@ -133,7 +142,7 @@
 </head>
 <body>
     <div id="stage">
-        <div id="beam-wrap"><div id="beam"></div><div id="halo"></div></div>
+        <div id="glow-wrap"><div id="beam"></div><div id="glow"></div><div id="stack-glow"></div></div>
         <pre id="scene"></pre>
     </div>
     <div id="banner"><div id="banner-title"></div><div id="banner-when"></div></div>
@@ -170,22 +179,7 @@
         const DIGIT_H = BIG[0].length;
         const DIGIT_GAP = 2;
 
-        // Miner, facing left. Arms and pick are drawn procedurally.
-        const BODY = [
-            '  _.--._',
-            '@=|____|',
-            '  (o   )',
-            "   '--' ",
-            '  [|##|]',
-            '   |##| ',
-            '   /  \\ ',
-            '  _|  |_',
-        ];
-        const SHOULDER = { r: 4, c: 2 };
-        const LAMP = { r: 1, c: 0 };
-        const EYE = { r: 2, c: 3 };
-
-        // The time fills the top of the cave; the mine works along the rail below it.
+        // The time fills the top of the cave. A small miner works the seconds on a ledge to the right of it.
         const DX = 3;
         const DIGIT_TOP = 3;
         const SAMPLE = '00:00';
@@ -193,18 +187,25 @@
         const DIGITS_END = DX + DIGITS_W;
         const RAIL = DIGIT_TOP + DIGIT_H + 8;
         const ROWS = RAIL + 1;
-        const GC = DIGITS_END - 4; // centre column of the gem inside the boulder: puts the miner (and his raised pick) just right of the last digit
-        const CART_PARK = GC - 22; // the robot parks clear of the boulder, so the new one is seen whole as it drops
-        const PILE_X = CART_PARK; // the rubble pile sits under the tub and is scooped up as it parks
-        const PILE_W = 8;
-        const STRIKE_C = GC + 2;
-        const BODY_TOP = RAIL - BODY.length;
-        const BODY_X = STRIKE_C + 7;
-        const COLS = BODY_X + 14;
+        const COLS = DIGITS_END + 19;
+        const LEDGE = DIGIT_TOP + DIGIT_H; // the shelf he stands on, level with the foot of the digits
 
-        // Where the pick lands: the boulder's face, level with the top of the gem.
-        const TX = STRIKE_C * CW + 0.1;
-        const TY = (RAIL - 2 + 0.5) * CH;
+        // Small miner, facing left. Arm and pick are drawn procedurally.
+        const BODY = ['@.-.', ' (o)', ' [#]', ' / \\']; // the lamp sits on the front of the helmet
+        const SHOULDER = { r: 2, c: 1 };
+        const LAMP = { r: 0, c: 0 };
+        const EYE = { r: 1, c: 2 };
+        const BODY_TOP = LEDGE - BODY.length;
+        const BODY_X = COLS - 6;
+
+        // His rock sits on the ledge in front of him; its gem is two cells wide.
+        const GC = DIGITS_END + 4; // the gem's left cell
+        const GEM_ROW = LEDGE - 2;
+        const CART_PARK = GC - 3; // the robot parks with its tub right under the chute
+
+        // Where the pick lands: the rock's face, level with the gem.
+        const TX = (GC + 4) * CW + 0.1;
+        const TY = (GEM_ROW + 0.5) * CH;
 
         const shoulderAt = (lean) => ({
             x: (BODY_X + SHOULDER.c + lean + 0.5) * CW,
@@ -212,7 +213,7 @@
         });
         const IMPACT_SHOULDER = shoulderAt(-1);
         const REACH = Math.hypot(TX - IMPACT_SHOULDER.x, TY - IMPACT_SHOULDER.y);
-        const ARM = 1.5;
+        const ARM = 0.9;
         const TH_IMPACT = (Math.atan2(-(TY - IMPACT_SHOULDER.y), TX - IMPACT_SHOULDER.x) / RAD + 360) % 360;
 
         // ---------- Small helpers ----------
@@ -243,8 +244,8 @@
 
         // ---------- The swing: one full cycle per second, the strike lands on the second ----------
         const TH_RECOIL = TH_IMPACT - 14;
-        const TH_TOP = 42;
-        const TH_COCKED = 18;
+        const TH_TOP = 75; // the small pick goes up over his helmet, where it can be seen
+        const TH_COCKED = 50;
         const angleAt = (p) => {
             if (p < 0.06) return TH_IMPACT;
             if (p < 0.16) return lerp(TH_IMPACT, TH_RECOIL, easeOut(seg(p, 0.06, 0.16)));
@@ -288,121 +289,96 @@
                 const tooth = DRIP_COLS.includes(c) ? 'V' : v < 0.12 ? 'v' : v < 0.2 ? "'" : ' ';
                 set(grid, 1, c, tooth, 'r');
                 set(grid, RAIL, c, c % 4 === 0 ? '+' : '=', 'ra');
+                // The ledge the small miner stands on, out of the right wall
+                // with a chute under the crystal, so it drops straight onto the stack
+                const chute = c >= GC - 1 && c <= GC + 2;
+                if (c > DIGITS_END && !chute) set(grid, LEDGE, c, c === DIGITS_END + 1 ? '\\' : '#%#='[Math.floor(seeded(c * 5.3) * 4)], 'ra');
+                if (c === GC - 1 || c === GC + 2) set(grid, LEDGE, c, c < GC ? ']' : '[', 'ra');
+                if (c > DIGITS_END + 1 && !chute && seeded(c * 2.9) < 0.3) set(grid, LEDGE + 1, c, seeded(c * 4.1) < 0.5 ? 'v' : "'", 'r');
                 Array.from({ length: RAIL - 2 }, (_, i) => i + 2).forEach((r) => {
-                    if (!inDigits(r, c) && seeded(r * 131.7 + c * 17.3) < 0.03) set(grid, r, c, ".,'`"[Math.floor(seeded(r + c * 9.1) * 4)], 'r');
+                    if (!inDigits(r, c) && !(r === LEDGE && c > DIGITS_END) && seeded(r * 131.7 + c * 17.3) < 0.03) set(grid, r, c, ".,'`"[Math.floor(seeded(r + c * 9.1) * 4)], 'r');
                 });
             });
         };
 
-        // ---------- Rubble pile: grows through the hour, loaded into the cart when the robot parks just before it ----------
-        // Piece k lands at :2k+2.5; the last one, knocked off by the strike at :00, lands at :00.5 of the next minute.
-        const SHELL = 30;
-        const PILE_LAYERS = [8, 7, 6, 5, 4];
-        const PILE_CAP = PILE_LAYERS.reduce((a, b) => a + b, 0);
-        const HOUR_PIECES = 60 * SHELL;
-        const landedBy = (minute, m) =>
-            (minute > 0 ? minute * SHELL - (m < 0.5 ? 1 : 0) : 0) + Math.min(SHELL - 1, Math.max(0, Math.floor((m - 2.5) / 2) + 1));
-        const pileHeights = (landed) => {
-            const n = Math.floor((landed * PILE_CAP) / HOUR_PIECES);
-            const widths = PILE_LAYERS.map((w, i) => Math.min(w, Math.max(0, n - PILE_LAYERS.slice(0, i).reduce((a, b) => a + b, 0))));
-            return Array.from({ length: PILE_W }, (_, i) => widths.filter((w) => i < w).length);
+        // ---------- The crystal stack: each minute's crystal drops through the chute in the ledge onto the stack below ----------
+        // The stack grows as a small pyramid, one shell at a time, and the robot scoops it up at the hour.
+        const STACK_ROWS = RAIL - LEDGE - 1;
+        const STACK = Array.from({ length: STACK_ROWS }, (_, r) => r)
+            .flatMap((r) => Array.from({ length: 2 * (STACK_ROWS - r) + 1 }, (_, i) => ({ r, d: i - (STACK_ROWS - r) })))
+            .map((s) => ({ ...s, k: s.r + Math.abs(s.d) }))
+            .sort((a, b) => a.k - b.k || a.r - b.r || (a.k % 2 ? a.d - b.d : b.d - a.d))
+            .slice(0, 60)
+            .map((s) => ({ row: RAIL - 1 - s.r, col: GC + s.d }));
+        const RISE = 0.12; // the freed crystal lifts and flares
+        const LANDS = 0.5; // it lands on top of the stack, or in the tub
+        const SETTLED = 0.7; // and rolls down into its place
+        const stackedBy = (minute, m) => (minute > 0 ? minute - (m < SETTLED ? 1 : 0) : 0);
+        const crystalCh = (col) => ((col - GC) % 2 === 0 ? '<' : '>');
+        // The newest crystal stays bright; every 2.5 s another one catches the light.
+        const drawStack = (grid, n, t) => {
+            const lit = n > 0 && t % 2.5 < 0.3 ? Math.floor(seeded(Math.floor(t / 2.5) * 3.1) * n) : -1;
+            STACK.slice(0, n).forEach((s, i) => set(grid, s.row, s.col, crystalCh(s.col), i === n - 1 || i === lit ? 'g' : 'gd'));
         };
-        const drawPile = (grid, heights) =>
-            heights.forEach((h, i) =>
-                Array.from({ length: h }, (_, k) => k).forEach((k) =>
-                    set(grid, RAIL - 1 - k, PILE_X + i, "o.,o'o"[Math.floor(seeded(i * 5 + k * 13) * 6)], 'p')
-                )
-            );
+        // The row a falling crystal stops at: just above the highest crystal under the chute.
+        const stackTop = (n) => Math.min(RAIL, ...STACK.slice(0, n).filter((s) => s.col === GC).map((s) => s.row)) - 1;
 
-        // Each minute's gem hops onto the pile at :00.5 and glints on top of it until the rubble covers it.
-        const GEM_LAND = 0.5;
-        const pileGemOf = (i) => {
-            const c = Math.floor(seeded(i * 7.7) * PILE_W);
-            return { i, c, level: pileHeights(i * SHELL)[c] };
-        };
-        const drawPileGems = (grid, heights, minute, m) =>
-            Array.from({ length: minute }, (_, j) => pileGemOf(j + 1))
-                .filter((g) => (g.i < minute || m >= GEM_LAND) && heights[g.c] <= g.level)
-                .forEach((g) => set(grid, RAIL - 1 - g.level, PILE_X + g.c, '*', g.i === minute ? 'g' : 'gd'));
-
-        // ---------- Flying chips: simple ballistics with two bounces ----------
         const GROUND = RAIL * CH - 0.05;
-        const chipAt = (secIdx, i, t) => {
-            const r1 = seeded(secIdx * 11.7 + i * 1.3);
-            const r2 = seeded(secIdx * 17.9 + i * 3.1);
-            const state = { x: TX + 0.25, y: TY + (r1 - 0.5) * 0.9, vx: -1 + r1 * 8, vy: -(7 + r2 * 5), bounces: 0 };
-            const steps = Math.floor(t / 0.01);
-            Array.from({ length: steps }).forEach(() => {
-                if (state.bounces > 1) return;
-                state.x += state.vx * 0.01;
-                state.vy += 28 * 0.01;
-                state.y += state.vy * 0.01;
-                if (state.y > GROUND && state.vy > 0) {
-                    state.y = GROUND;
-                    state.vy *= -0.32;
-                    state.vx *= 0.45;
-                    state.bounces += 1;
-                }
-            });
-            return state;
-        };
 
-        // ---------- The boulder: one per minute. 30 pieces, each cracked by one hit and knocked off by the next ----------
-        const GEM = [[0, -1, '/'], [0, 0, '^'], [0, 1, '\\'], [1, -1, '\\'], [1, 0, 'v'], [1, 1, '/']].map(([dr, dc, ch]) => ({ r: RAIL - 2 + dr, c: GC + dc, ch }));
+        // ---------- The small rock: one per minute. 15 pieces, each cracked by one hit and knocked off three hits later ----------
+        const SHELL = 15;
+        const GEM = [[0, '<'], [1, '>']].map(([dc, ch]) => ({ r: GEM_ROW, c: GC + dc, ch }));
         const isGemCell = (r, c) => GEM.some((g) => g.r === r && g.c === c);
         const ROCK = '#%@&';
-        const boulderOf = (minuteIdx) => {
-            const cx = GC + 0.5;
-            const cells = Array.from({ length: 7 }, (_, i) => RAIL - 7 + i)
-                .flatMap((r) => Array.from({ length: 13 }, (_, i) => GC - 10 + i).map((c) => ({ r, c })))
+        const rockOf = (minuteIdx) => {
+            const cx = GC + 1;
+            const cy = GEM_ROW + 0.5;
+            const cells = Array.from({ length: 3 }, (_, i) => LEDGE - 3 + i)
+                .flatMap((r) => Array.from({ length: 7 }, (_, i) => GC - 2 + i).map((c) => ({ r, c })))
                 .filter(({ r, c }) => !isGemCell(r, c))
                 .map(({ r, c }) => {
-                    const dx = (c + 0.5 - cx) / (c + 0.5 < cx ? 6 : 3.4);
-                    const dy = (RAIL - 0.5 - (r + 0.5)) / 5.6;
+                    const dx = (c + 0.5 - cx) / 3.6;
+                    const dy = (r + 0.5 - cy) / 1.6;
                     return { r, c, score: dx * dx + dy * dy + 0.15 * seeded(minuteIdx * 31.7 + r * 7.3 + c * 1.91) };
                 })
                 .sort((a, b) => a.score - b.score)
                 .slice(0, SHELL);
             // Peel from the outside in: the pieces farthest from the gem go first.
-            const depth = ({ r, c }) => Math.hypot((c - GC) / 1.7, r - (RAIL - 1.5)) + 0.9 * seeded(minuteIdx * 13.1 + r * 3.7 + c * 5.3);
+            const depth = ({ r, c }) => Math.hypot((c + 0.5 - cx) / 1.7, r + 0.5 - cy) + 0.9 * seeded(minuteIdx * 13.1 + r * 3.7 + c * 5.3);
             return cells
                 .sort((a, b) => depth(b) - depth(a))
                 .map((cell, k) => ({ r: cell.r, c: cell.c, k, ch: ROCK[Math.floor(seeded(minuteIdx * 3.1 + cell.r * 11 + cell.c) * 4)] }));
         };
-        const crackHit = (k) => Math.max(1, 2 * k - 3);
-        const fallHit = (k) => 2 * k + 2;
+        const crackHit = (k) => 4 * k + 1;
+        const fallHit = (k) => 4 * k + 4;
         const strikeAngle = (r, c) => (Math.atan2(-((r + 0.5) * CH - TY), (c + 0.5) * CW - TX) / RAD + 360) % 360;
         const cellPt = ({ r, c }) => ({ x: (c + 0.5) * CW, y: (r + 0.5) * CH });
 
-        // The new boulder drops from the ceiling during :00 once the gem is in the cart, and lands as the pick comes down.
+        // The new rock drops from the ceiling during :00, once the gem is away.
         const DROP = [0.5, 0.75];
-        const drawBoulder = (grid, cells, hits, p, drop) => {
+        const drawRock = (grid, cells, hits, drop) => {
             const behind = drop > 0;
             cells.forEach((cell) => {
                 if (hits >= fallHit(cell.k)) return;
                 const cracked = hits >= crackHit(cell.k);
-                const fresh = hits === crackHit(cell.k) && p < 0.12;
                 const r = cell.r - drop;
                 if (r < 2) return;
-                set(grid, r, cell.c, cracked ? lineChar(strikeAngle(cell.r, cell.c)) : cell.ch, fresh ? 'sp' : cracked ? 'kc' : 'k', behind);
+                set(grid, r, cell.c, cracked ? lineChar(strikeAngle(cell.r, cell.c)) : cell.ch, cracked ? 'kc' : 'k', behind);
             });
         };
-        const drawGem = (grid, at, cls, twinkle) =>
-            GEM.forEach((g, i) =>
-                plot(grid, { x: at.x + (g.c - GC) * CW, y: at.y + (g.r - (RAIL - 2)) * CH }, twinkle && i === 1 ? '*' : g.ch, cls)
-            );
-        const GEM_HOME = { x: (GC + 0.5) * CW, y: (RAIL - 2 + 0.5) * CH };
+        const drawGem = (grid, at, cls, twinkle) => {
+            plot(grid, { x: at.x - 0.5 * CW, y: at.y }, twinkle ? '*' : '<', cls);
+            plot(grid, { x: at.x + 0.5 * CW, y: at.y }, '>', cls);
+        };
+        const GEM_HOME = { x: (GC + 1) * CW, y: (GEM_ROW + 0.5) * CH };
 
         // ---------- The robot cart: once an hour, for the red gem of minute 59. dir: 1 driving in, -1 backing out ----------
         // Every step lands on the beat of the pick (whole seconds) or on its upswing (half seconds):
         //   :56  rolls in, braking through :57      :58  parks on the strike, scoops the pile
-        //   :59.2  reaches out, still by :59.8      :00  strike frees the gem, claw shuts as it settles (:00.2)
-        //   :00.5  gem let go into the tub           :01  pulls away on the first strike of the new boulder
+        //   :00  strike frees the gem                :00.5  it drops off the ledge into the tub
+        //   :01  pulls away on the first strike of the new rock
         const ARRIVE = [56, 58];
-        const REACH_OUT = [59.2, 59.8];
-        const GRAB = 0.2;
         const RELEASE = 0.5;
-        const FOLDED = 0.75;
         const LEAVE = [1, 4];
         const cartAt = (m) => {
             if (m >= ARRIVE[0] && m < ARRIVE[1]) return { x: lerp(-15, CART_PARK, easeOut(seg(m, ARRIVE[0], ARRIVE[1]))), full: false, gem: false, dir: 1 };
@@ -415,13 +391,6 @@
         const craneBase = (x) => ({ x: (x + 8 + 0.5) * CW, y: (RAIL - 4 + 0.5) * CH });
         // Folded: the arm up, the forearm pulled in over the cab, tongs hanging.
         const REST = (x) => ({ x: craneBase(x).x + 2.4, y: craneBase(x).y - 2.2 });
-        const ABOVE_GEM = { x: GEM_HOME.x, y: (RAIL - 3 + 0.5) * CH };
-        const ABOVE_HOPPER = { x: (CART_PARK + 3.5) * CW, y: (RAIL - 6 + 0.5) * CH };
-        const APEX = { x: (ABOVE_GEM.x + ABOVE_HOPPER.x) / 2, y: (RAIL - 8) * CH };
-        const bezier = (a, b, c, t) => ({
-            x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * b.x + t * t * c.x,
-            y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * b.y + t * t * c.y,
-        });
         // Two-joint arm with a telescoping forearm: the upper arm leans halfway between straight up and the claw,
         // so it never folds through the clock face, and the forearm slides out of its sleeve to reach.
         const UPPER = 3;
@@ -429,14 +398,6 @@
         const elbowOf = (s, tip) => {
             const toClaw = Math.atan2(-(tip.y - s.y), tip.x - s.x) / RAD;
             return along(s, dirOf((toClaw + 90) / 2), UPPER);
-        };
-        // The claw: reaches over the gem before :00, grabs it as it settles from the strike, swings it into the tub.
-        const clawAt = (m, x) => {
-            if (m >= REACH_OUT[0]) return { pt: lerp2(REST(x), ABOVE_GEM, easeInOut(seg(m, REACH_OUT[0], REACH_OUT[1]))), closed: false, holding: false };
-            if (m < GRAB) return { pt: ABOVE_GEM, closed: false, holding: false };
-            if (m < RELEASE) return { pt: bezier(ABOVE_GEM, APEX, ABOVE_HOPPER, easeInOut(seg(m, GRAB, RELEASE))), closed: true, holding: true };
-            if (m < FOLDED) return { pt: lerp2(ABOVE_HOPPER, REST(x), easeInOut(seg(m, RELEASE, FOLDED))), closed: false, holding: false };
-            return { pt: REST(x), closed: false, holding: false };
         };
         //   cols  0123456789abcd
         //   R-5              o       antenna light
@@ -460,11 +421,10 @@
 
             // Tub, load and the gem riding on top
             if (cart.full) {
-                put(grid, RAIL - 4, x + 1, '.o%#o.', 'p');
-                // the hour's gems glint in the load
-                [x + 1, x + 6].forEach((c) => set(grid, RAIL - 4, c, '*', 'g'));
+                // the hour's crystals
+                put(grid, RAIL - 4, x + 1, '<><><>', 'g');
             }
-            if (cart.gem) put(grid, RAIL - 4, x + 2, '/^\\', gemCls);
+            if (cart.gem) put(grid, RAIL - 4, x + 3, '<>', gemCls);
             put(grid, RAIL - 3, x, '|=', 'ca');
             put(grid, RAIL - 3, x + 2, 'o', 'wh');
             put(grid, RAIL - 3, x + 3, '==', 'ca');
@@ -474,8 +434,8 @@
             put(grid, RAIL - 1, x, '(_)==(_)==(_)', 'ca');
             [1, 6, 11].forEach((c) => set(grid, RAIL - 1, x + c, spin, 'wh'));
 
-            // Crane arm, behind the cab (folded back while driving)
-            const claw = cart.x === CART_PARK ? clawAt(m, x) : { pt: REST(x), closed: false, holding: false };
+            // Crane arm, behind the cab, folded
+            const claw = { pt: REST(x) };
             const s = craneBase(x);
             // The rod ends on a hub just above the tongs
             const hub = { x: claw.pt.x, y: claw.pt.y - CH };
@@ -497,8 +457,8 @@
             }
 
             // Cab: screen face, antenna light that blinks with the seconds
-            const happy = m < LEAVE[1] && m >= GRAB;
-            const focus = m >= REACH_OUT[0] || m < GRAB;
+            const happy = m < LEAVE[1] && m >= RELEASE;
+            const focus = m >= 59 || m < RELEASE;
             const p = (nowMs % 1000) / 1000;
             const blink = Math.floor(nowMs / 1000) % 3 === 0 && p >= 0.5 && p < 0.62;
             put(grid, RAIL - 4, x + 9, '.-|.', 'ca');
@@ -515,8 +475,7 @@
             // Shoulder and tongs in front of everything
             plot(grid, s, 'O', 'wh');
             const tip = cellOf(claw.pt);
-            put(grid, tip.r, tip.c - 1, claw.closed ? '>-<' : '/ \\', 'wh');
-            if (claw.holding) drawGem(grid, { x: claw.pt.x, y: claw.pt.y + CH }, gemCls, false);
+            put(grid, tip.r, tip.c - 1, '/ \\', 'wh');
 
             // A little heart when the gem drops in the tub, floating up in front of the cab
             if (m >= RELEASE && m < 2) {
@@ -678,18 +637,19 @@
 
         // ---------- Water dripping from the stalactites ----------
         // Each stalactite has its own whole-second period, and every drop lands on a half second, between two strikes.
-        const DRIP_FALL = Math.sqrt((2 * (GROUND - 2 * CH)) / 30);
         const DRIP_PERIODS = [7, 11, 9, 13];
         const drawDrips = (grid, t) =>
             DRIP_COLS.forEach((c, i) => {
+                const floor = c > DIGITS_END ? LEDGE : RAIL; // the drip over the ledge lands on it
+                const fall = Math.sqrt((2 * (floor * CH - 0.05 - 2 * CH)) / 30);
                 const period = DRIP_PERIODS[i];
-                const q = (t + 0.7 + DRIP_FALL + i) % period;
+                const q = (t + 0.7 + fall + i) % period;
                 const fallY = 2 * CH + 0.5 * 30 * Math.pow(q - 1.2, 2);
                 if (q < 1.2) set(grid, 2, c, q < 0.6 ? '.' : ',', 'dr', true);
-                else if (fallY < GROUND) plot(grid, { x: (c + 0.5) * CW, y: fallY }, q - 1.2 < 0.15 ? ',' : "'", 'dr', true);
-                else if (q < 1.2 + DRIP_FALL + 0.25) {
-                    set(grid, RAIL - 1, c - 1, '.', 'dr', true);
-                    set(grid, RAIL - 1, c + 1, '.', 'dr', true);
+                else if (fallY < floor * CH - 0.05) plot(grid, { x: (c + 0.5) * CW, y: fallY }, q - 1.2 < 0.15 ? ',' : "'", 'dr', true);
+                else if (q < 1.2 + fall + 0.25) {
+                    set(grid, floor - 1, c - 1, '.', 'dr', true);
+                    set(grid, floor - 1, c + 1, '.', 'dr', true);
                 }
             });
 
@@ -741,6 +701,20 @@
         };
 
         // ---------- The whole frame ----------
+        const GOLD = '255,214,120';
+        const RED = '255,84,56';
+        const RAYS = [12, 50, 90, 130, 168]; // light escaping the rock, never down into the ledge
+        // The freed crystal: lifts, falls straight down the chute, then rolls into its place on the stack (or drops in the tub).
+        const crystalFall = (p, parked, n) => {
+            const top = { x: GEM_HOME.x, y: GEM_HOME.y - 0.35 };
+            if (p < RISE) return { x: GEM_HOME.x, y: lerp(GEM_HOME.y, top.y, easeOut(p / RISE)), rolling: false };
+            const floorY = ((parked ? RAIL - 4 : stackTop(n)) + 0.5) * CH;
+            if (p < LANDS) return { x: GEM_HOME.x, y: lerp(top.y, floorY, easeIn2(seg(p, RISE, LANDS))), rolling: false };
+            if (parked || p >= SETTLED) return null;
+            const slot = STACK[n];
+            const q = easeOut(seg(p, LANDS, SETTLED));
+            return { x: lerp((GC + 0.5) * CW, (slot.col + 0.5) * CW, q), y: lerp(floorY, (slot.row + 0.5) * CH, q), rolling: true, col: slot.col };
+        };
         const renderScene = (nowMs, meeting = null) => {
             const date = new Date(nowMs);
             const p = (nowMs % 1000) / 1000;
@@ -761,108 +735,99 @@
             const cart = (minute === 59 && m >= ARRIVE[0]) || (minute === 0 && m < LEAVE[1]) ? cartAt(m) : null;
             const parked = cart && cart.x === CART_PARK;
 
-            // Rubble pile: grows through the hour with the gems on it, scooped up by the cart when it parks
-            const heights = pileHeights(landedBy(minute, m));
-            if (!parked) {
-                drawPile(grid, heights);
-                drawPileGems(grid, heights, minute, m);
-            }
-
-            // The hour: minute 59's gem is red, and the strike at the top of the hour sets it off.
+            // The hour: minute 59's crystal is red, and the strike at the top of the hour sets it off.
             const h = minute === 0 ? m : Infinity;
             const red = minute === 59 || (minute === 0 && m < LEAVE[1]);
             const gemCls = red ? 'rg' : 'g';
-            /* Retired hour rock:
-            const hourIdx = Math.floor((minuteIdx - date.getTimezoneOffset()) / 60);
-            const thumpAge = m - DROP[1];
-            const hot = minute === 59;
-            const beat = hot && (m + (1.5 * m * m) / 60) % 1 < 0.25;
-            const lift = h < RISE[0] ? RAIL : h < RISE[1] ? Math.round((1 - easeOut(seg(h, RISE[0], RISE[1]))) * 8) : 0;
-            const hourRock = hourRockOf(hourIdx);
-            const gone = thumpAge >= 0 ? minute : minute - 1;
-            drawHourRock(grid, hourRock, { gone, hot, beat, lift, fresh: thumpAge >= 0 && thumpAge < 0.15 });
-            if (hot) drawEmbers(grid, t);
-            if (minute > 0 && thumpAge >= 0 && thumpAge < 1.6) drawFallingChunks(grid, hourRock, minute, thumpAge);
-            */
+            const rgb = red ? RED : GOLD;
 
-            // Dust puff behind everything that stands in front of the wall
-            if (p > 0.02 && p < 0.55) {
-                const life = seg(p, 0.02, 0.55);
-                const dist = 0.3 + 2.4 * easeOut(life);
-                Array.from({ length: 7 }, (_, i) => -75 + i * 25).forEach((a) =>
-                    plot(grid, { x: TX + Math.cos(a * RAD) * dist * 1.3, y: TY - Math.sin(a * RAD) * dist * 0.7 - life * 0.9 }, 'o..\''[Math.floor(life * 4)], 'du', true)
-                );
-            }
+            // The crystal stack, scooped up by the cart when it parks
+            const n = stackedBy(minute, m);
+            if (!parked) drawStack(grid, n, t);
 
-            // The clock: hours and minutes only. The boulder is the seconds.
+            // The clock: hours and minutes, unlit. The small rock is the seconds.
             const text = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
             text.split('').reduce((x, ch) => {
                 BIG[ch].forEach((line, r) => put(grid, DIGIT_TOP + r, x, line, 'd'));
                 return x + BIG[ch][0].length + DIGIT_GAP;
             }, DX);
 
-            /* Retired hour rock: if (h < RISE[1]) drawHourBurst(grid, hourRockOf(hourIdx - 1), h); */
             if (h < BLAST_END) drawBlast(grid, h);
 
-            // The boulder. Hit n of the minute lands at :n; the 60th (at :00) frees the gem.
-            const boulder = boulderOf(minuteIdx);
+            // How close he is to the crystal: one step with every strike.
+            const s = sec > 0 ? Math.pow(sec / 60, 1.3) : 0;
+            const reach = 1.3 + 2 * s; // how far its light gets through the rock
+
+            const rock = rockOf(minuteIdx);
+            const fall = sec === 0 ? crystalFall(p, parked, n) : null;
             if (sec > 0) {
-                drawBoulder(grid, boulder, sec, p, 0);
+                drawRock(grid, rock, sec, 0);
                 // Dull from :30, bright from :50, and from then it glints with every strike
                 const cls = sec >= 50 ? gemCls : sec >= 30 ? (red ? 'rgd' : 'gd') : null;
                 if (cls) drawGem(grid, GEM_HOME, cls, sec >= 50 && p < 0.12);
                 else GEM.forEach((g, i) => set(grid, g.r, g.c, ROCK[(i + minuteIdx) % 4], 'k'));
             } else {
-                // The strike frees the gem. Most minutes it hops onto the pile; on the hour it settles into the claw.
-                if (!cart && p < GEM_LAND) {
-                    const g = pileGemOf(minute);
-                    const to = { x: (PILE_X + g.c + 0.5) * CW, y: (RAIL - 2 - g.level + 0.5) * CH };
-                    const apex = { x: (GEM_HOME.x + to.x) / 2, y: (RAIL - 7) * CH };
-                    drawGem(grid, bezier(GEM_HOME, apex, to, easeInOut(p / GEM_LAND)), 'g', p < 0.1);
-                }
-                if (cart && p < GRAB) drawGem(grid, { x: GEM_HOME.x, y: GEM_HOME.y - 0.7 * Math.sin((Math.PI * p) / GRAB) }, gemCls, p < 0.1);
+                if (fall && fall.rolling) set(grid, Math.floor(fall.y / CH), fall.col, crystalCh(fall.col), 'g');
+                else if (fall) drawGem(grid, fall, gemCls, p < RISE);
+                // A new rock drops from the ceiling
                 if (p >= DROP[0]) {
-                    const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * (RAIL - 8));
-                    drawBoulder(grid, boulder, 0, p, drop);
+                    const drop = Math.round((1 - easeIn2(seg(p, DROP[0], DROP[1]))) * (LEDGE - 5));
+                    drawRock(grid, rock, 0, drop);
                     GEM.forEach((g, i) => g.r - drop >= 2 && set(grid, g.r - drop, g.c, ROCK[(i + minuteIdx) % 4], 'k', drop > 0));
                 }
-                // A trickle of grit from the ceiling just before it lets go
-                if (p >= DROP[0] - 0.15 && p < DROP[1]) {
-                    [GC - 3, GC - 1, GC + 1].forEach((c, i) => {
-                        const q = p - (DROP[0] - 0.15) - i * 0.06;
-                        if (q > 0) plot(grid, { x: (c + 0.5) * CW, y: 2 * CH + 130 * q * q }, '.', 'du', true);
-                    });
-                }
             }
 
-            // The new boulder lands: a puff of dust along the rail
-            const landAge = sec === 0 ? p - DROP[1] : sec === 1 ? p + 1 - DROP[1] : -1;
-            if (landAge >= 0 && landAge < 0.5) {
-                const spread = 1 + 5 * easeOut(landAge / 0.5);
-                [-1, 1].forEach((side) =>
-                    [0, 0.6].forEach((k) =>
-                        plot(grid, { x: (GC + 0.5 - 1.5 + side * (3 + spread + k * 2)) * CW, y: (RAIL - 0.5 - k - landAge * 1.5) * CH }, landAge < 0.25 ? 'o' : '.', 'du', true)
-                    )
+            // The light inside: cracks near the crystal glow, warmer and wider with each strike
+            if (sec > 0)
+                grid.forEach((row, r) =>
+                    row.forEach((cell, c) => {
+                        if (cell.cls !== 'k' && cell.cls !== 'kc') return;
+                        const i = s * Math.max(0, 1 - Math.hypot((c + 0.5) * CW - GEM_HOME.x, (r + 0.5) * CH - GEM_HOME.y) / reach);
+                        if (cell.cls === 'kc') cell.cls = i > 0.35 ? (red ? 'kr2' : 'kg2') : i > 0.1 ? (red ? 'kr1' : 'kg1') : 'kc';
+                        else if (i > 0.2) cell.cls = 'kl';
+                    })
                 );
+
+            // Rays through the gaps, from :30, a step longer with each strike; one full flare as it breaks free
+            const flare = sec === 0 && p < RISE + 0.1;
+            const rayLen = sec >= 30 ? 0.6 + ((sec - 30) / 30) * 1.8 : flare ? 2.8 : 0;
+            const rayFrom = flare && fall ? fall : GEM_HOME;
+            RAYS.forEach((a) => {
+                const steps = Math.floor(rayLen / 0.55);
+                Array.from({ length: steps }, (_, i) => i).forEach((i) => {
+                    const pt = along(rayFrom, dirOf(a), 1.3 + i * 0.55);
+                    const { r, c } = cellOf(pt);
+                    if (!inDigits(r, c)) plot(grid, pt, lineChar(a), i < steps / 2 ? (red ? 'rr2' : 'ry2') : red ? 'rr1' : 'ry1', true);
+                });
+            });
+
+            // Motes drifting slowly in its light, the last 20 seconds
+            if (sec >= 40)
+                Array.from({ length: 5 }, (_, i) => i).forEach((i) => {
+                    const pt = along(GEM_HOME, dirOf(i * 72 + t * 8), 1.9 + 0.5 * Math.sin(t * 0.5 + i));
+                    const { r, c } = cellOf(pt);
+                    if (!inDigits(r, c)) plot(grid, pt, '.', red ? 'rr1' : 'ry1', true);
+                });
+
+            // The piece knocked off by this hit drops onto the ledge and crumbles
+            const fallK = sec === 0 ? SHELL - 1 : sec % 4 === 0 ? sec / 4 - 1 : -1;
+            if (fallK >= 0 && p < 0.35) {
+                const piece = (sec === 0 ? rockOf(minuteIdx - 1) : rock).find((cell) => cell.k === fallK);
+                const from = cellPt(piece);
+                const y = Math.min(from.y + 40 * p * p, (LEDGE - 0.5) * CH);
+                plot(grid, { x: from.x - 1.5 * p, y }, p < 0.2 ? piece.ch : '.', p < 0.2 ? 'k' : 'du', true);
             }
 
-            // The piece knocked off by this hit flies onto the pile (or into the waiting cart)
-            const flyK = sec === 0 ? SHELL - 1 : sec % 2 === 0 ? sec / 2 - 1 : -1;
-            if (flyK >= 0 && p < 0.5) {
-                const piece = (sec === 0 ? boulderOf(minuteIdx - 1) : boulder).find((cell) => cell.k === flyK);
-                const from = cellPt(piece);
-                // It lands on the very cell the pile grows by (or on top of the pile when it does not grow)
-                const landed = landedBy(minute, m);
-                const before = pileHeights(landed);
-                const after = pileHeights(landed + 1);
-                const grows = after.findIndex((n, i) => n > before[i]);
-                const i = grows >= 0 ? grows : (flyK * 3) % PILE_W;
-                const to = parked
-                    ? { x: (CART_PARK + 3.5) * CW, y: (RAIL - 4 + 0.5) * CH }
-                    : { x: (PILE_X + i + 0.5) * CW, y: (RAIL - 1 - before[i] + 0.5) * CH };
-                const T = 0.5;
-                const vy = (to.y - from.y - 14 * T * T) / T;
-                plot(grid, { x: lerp(from.x, to.x, p / T), y: from.y + vy * p + 14 * p * p }, piece.ch, 'k');
+            // A spark where the pick bites, and a wisp of dust
+            if (p < 0.08) {
+                const tc = cellOf({ x: TX, y: TY });
+                set(grid, tc.r, tc.c - 1, '*', 'sp');
+            }
+            if (p > 0.04 && p < 0.4) {
+                const life = seg(p, 0.04, 0.4);
+                [-40, 30].forEach((a) =>
+                    plot(grid, { x: TX + Math.cos(a * RAD) * life * 1.4, y: TY - Math.sin(a * RAD) * life * 0.8 - life * 0.6 }, life < 0.5 ? 'o' : '.', 'du', true)
+                );
             }
 
             // Pose
@@ -874,113 +839,60 @@
             const head = along(sh, dir, REACH);
             const overhead = theta < 150;
 
-            // Motion blur along the arc while the pick is moving fast
-            const back = angleAt((p - 0.11 + 1) % 1);
-            const fast = p > 0.84 || p < 0.03;
-            if (fast && Math.abs(theta - back) > 12) {
-                const steps = Math.ceil(Math.abs(theta - back) / 3);
-                Array.from({ length: steps }, (_, i) => i / steps).forEach((f) =>
-                    plot(grid, along(sh, dirOf(lerp(back, theta, f)), REACH), f > 0.66 ? ':' : '.', 'tr', true)
-                );
-            }
-
-            const drawArmsAndPick = () => {
+            const drawArmAndPick = () => {
                 segment(grid, sh, hand, lineChar(theta), 's');
-                segment(grid, along(sh, dir, ARM + 0.3), along(sh, dir, REACH - 0.15), lineChar(theta) === '-' ? '=' : lineChar(theta), 'w');
-                const n = { x: -dir.y, y: dir.x };
-                [-1, -0.66, -0.33, 0, 0.33, 0.66, 1].forEach((s) => {
-                    const pt = { x: head.x + n.x * s * 1.25 - dir.x * 0.35 * s * s, y: head.y + n.y * s * 1.25 - dir.y * 0.35 * s * s };
-                    const ch = Math.abs(s) === 1 ? tipChar({ x: n.x * s, y: n.y * s }) : lineChar(theta + 90);
-                    plot(grid, pt, ch, 'st');
+                segment(grid, along(sh, dir, ARM + 0.2), along(sh, dir, REACH - 0.1), lineChar(theta) === '-' ? '=' : lineChar(theta), 'w');
+                const nv = { x: -dir.y, y: dir.x };
+                [-1, 0, 1].forEach((k) => {
+                    const pt = { x: head.x + nv.x * k * 0.7, y: head.y + nv.y * k * 0.7 };
+                    plot(grid, pt, k ? tipChar({ x: nv.x * k, y: nv.y * k }) : lineChar(theta + 90), 'st');
                 });
                 plot(grid, hand, 'o', 's');
             };
 
-            // Sparks at the moment of impact
-            if (p < 0.08) {
-                const tc = cellOf({ x: TX, y: TY });
-                set(grid, tc.r, tc.c, '*', 'sp');
-                [[-1, 1, '\''], [1, 1, ','], [-1, 2, '+'], [0, 2, '-'], [1, 2, '.']].forEach(([dr, dc, ch]) =>
-                    set(grid, tc.r + dr, tc.c + dc, ch, 'sp')
-                );
-            }
+            if (overhead) drawArmAndPick();
 
-            // Chips
-            if (p < 0.85) {
-                Array.from({ length: 4 }, (_, i) => i).forEach((i) => {
-                    const chip = chipAt(secIdx, i, p);
-                    if (chip.bounces > 1) return;
-                    plot(grid, chip, ".',`"[i], 'c', true);
-                });
-            }
-
-            if (overhead) drawArmsAndPick();
-
-            // He blinks now and then, always at the top of the swing, never on the strike
+            // He blinks now and then, always at the top of the swing, never on the strike.
             const blink = p >= 0.42 && p < 0.55 && seeded(secIdx * 0.37) < 0.25;
             const squint = p < 0.12;
             BODY.forEach((line, r) => {
                 const shift = r <= SHOULDER.r ? lean : 0;
-                const first = line.search(/\S/);
-                const last = line.length - line.split('').reverse().join('').search(/\S/) - 1;
                 line.split('').forEach((ch, c) => {
-                    if (ch === ' ' && c > first && c < last) {
-                        const cell = grid[BODY_TOP + r][BODY_X + c + shift];
-                        if (cell) Object.assign(cell, { ch: ' ', cls: '' });
-                        return;
-                    }
                     const isEye = r === EYE.r && c === EYE.c;
                     const glyph = isEye ? (h < BLAST_END ? 'O' : blink ? '-' : squint ? '>' : 'o') : ch;
-                    const cls = ch === '@' ? 'l' : r <= 1 ? 'h' : r <= 3 ? 's' : ch === '#' ? 'o' : 'b';
+                    const cls = ch === '@' ? 'l' : r === 0 ? 'h' : r === 1 ? 's' : ch === '#' ? 'o' : 'b';
                     set(grid, BODY_TOP + r, BODY_X + c + shift, glyph, cls);
                 });
             });
 
-            if (!overhead) drawArmsAndPick();
+            if (!overhead) drawArmAndPick();
 
             if (cart) drawRobot(grid, cart, m, nowMs, gemCls);
 
-            // Helmet lamp: lights the digits and the rock it points at, and the dust floating in its beam
-            const lamp = { x: (BODY_X + LAMP.c + lean + 0.5) * CW, y: (BODY_TOP + LAMP.r + 0.5) * CH };
-            // The beam follows his head: it rises with the pick and snaps down onto the boulder with the strike.
-            const toTarget = (Math.atan2(-(TY - lamp.y), TX - lamp.x) / RAD + 360) % 360;
-            const beta = toTarget - 5 + 0.07 * (theta - TH_IMPACT);
-            const HALF = 19;
-            const LEN = 26;
-            const light = (pt) => {
-                const dx = pt.x - lamp.x;
-                const dy = pt.y - lamp.y;
-                const d = Math.hypot(dx, dy);
-                const ang = (Math.atan2(-dy, dx) / RAD + 360) % 360;
-                const off = Math.abs(((ang - beta + 540) % 360) - 180);
-                return d > LEN || off > HALF ? 0 : (1 - d / LEN) * (1 - off / HALF);
-            };
-            grid.forEach((row, r) =>
-                row.forEach((cell, c) => {
-                    const i = light({ x: (c + 0.5) * CW, y: (r + 0.5) * CH });
-                    if (i > 0.06 && cell.cls === 'd') cell.cls = 'dl';
-                    if (i > 0.04 && cell.cls === 'r') cell.cls = 'rl';
-                    if (i > 0.04 && cell.cls === 'k') cell.cls = 'kl';
-                })
-            );
-            Array.from({ length: 36 }, (_, i) => i).forEach((i) => {
-                const pt = {
-                    x: (10 + seeded(i * 3.7) * (BODY_X - 10)) * CW + 1.2 * Math.sin(t * 0.25 + i),
-                    y: (2 + seeded(i * 8.3) * (RAIL - 3)) * CH + 0.6 * Math.sin(t * 0.31 + i * 1.7),
-                };
-                const { r, c } = cellOf(pt);
-                if (!inDigits(r, c) && light(pt) > 0.05) plot(grid, pt, '.', 'm', true);
-            });
-
             if (h < BLAST_END) rippleDigits(grid, h);
 
-            // A flash on every strike, and a thump when the new boulder lands
-            const flash = p < 0.3 ? Math.pow(1 - p / 0.3, 2) : 0;
-            const thump = sec === 0 && p >= DROP[1] && p < DROP[1] + 0.06;
-            // The hour: a white flash as the red gem goes off, and one short jolt
+            // His lamp: a short, faint beam onto the rock face. It moves with his head but never reaches the time.
+            const lamp = { x: (BODY_X + LAMP.c + lean + 0.5) * CW, y: (BODY_TOP + LAMP.r + 0.5) * CH };
+            const beam = { lamp, beta: (Math.atan2(-(TY - lamp.y), TX - lamp.x) / RAD + 360) % 360, half: 14, len: 5.5 };
+
+            // Two soft lights: the crystal (a breath on each strike), and the stack it is building
+            const glow =
+                sec > 0
+                    ? { x: GEM_HOME.x, y: GEM_HOME.y, a: 0.05 + 0.5 * s + (p < 0.2 ? 0.08 * s * (1 - p / 0.2) : 0), r: reach, rgb }
+                    : fall
+                      ? { x: fall.x, y: fall.y, a: p < RISE ? 0.85 : lerp(0.85, 0.35, seg(p, RISE, SETTLED)), r: p < RISE ? 3.2 : 2.4, rgb }
+                      : null;
+            const stackGlow =
+                cart && cart.full
+                    ? { x: (cart.x + 3.5) * CW, y: (RAIL - 4) * CH, a: 0.28, r: 3, rgb: GOLD }
+                    : n > 0
+                      ? { x: (GC + 0.5) * CW, y: ((stackTop(n) + 1 + RAIL) / 2) * CH, a: 0.05 + 0.22 * (n / 60), r: 1.8 + 2.6 * (n / 60), rgb: GOLD }
+                      : null;
+
+            // No flash on the strikes: only the hour gets a white flash and a jolt.
             const burst = h < 0.4 ? Math.pow(1 - h / 0.4, 2) : 0;
             const quake = h < 0.4 ? 1 - h / 0.4 : 0;
-            return { grid, lamp, beta, half: HALF, len: LEN, p, flash, thump, burst, quake };
+            return { grid, beam, glow, stackGlow, burst, quake };
         };
 
         const toText = (grid) => grid.map((row) => row.map((c) => c.ch).join('')).join('\n');
@@ -1000,12 +912,14 @@
                 )
                 .join('\n');
 
+
         // ---------- Browser ----------
         const start = () => {
             const stage = document.getElementById('stage');
             const scene = document.getElementById('scene');
-            const beam = document.getElementById('beam');
-            const halo = document.getElementById('halo');
+            const beamEl = document.getElementById('beam');
+            const glowEl = document.getElementById('glow');
+            const stackGlowEl = document.getElementById('stack-glow');
 
             const banner = document.getElementById('banner');
             const bannerTitle = document.getElementById('banner-title');
@@ -1109,6 +1023,12 @@
             };
 
             const em = (v) => `${(v + 2).toFixed(2)}em`;
+            // A soft round light: bright at the centre, gone by its radius
+            const paint = (el, g) => {
+                el.style.opacity = g ? '1' : '0';
+                if (g)
+                    el.style.background = `radial-gradient(circle at ${em(g.x)} ${em(g.y)}, rgba(${g.rgb},${g.a.toFixed(3)}) 0, rgba(${g.rgb},${(g.a * 0.35).toFixed(3)}) ${(g.r * 0.45).toFixed(2)}em, rgba(${g.rgb},0) ${g.r.toFixed(2)}em)`;
+            };
             let lastHtml = '';
             // 30 frames a second: half the work of the screen's 60, and the cells barely look different.
             const FRAME_MS = 1000 / 30;
@@ -1126,18 +1046,18 @@
                     scene.innerHTML = html;
                     lastHtml = html;
                 }
-                const { lamp, beta, half, len, p, flash, thump, burst, quake } = frame;
+                const { beam, glow, stackGlow, burst, quake } = frame;
+                const { lamp, beta, half, len } = beam;
                 const a = dirOf(beta - half);
                 const b = dirOf(beta + half);
-                beam.style.clipPath = `polygon(${em(lamp.x)} ${em(lamp.y)}, ${em(lamp.x + a.x * len)} ${em(lamp.y + a.y * len)}, ${em(lamp.x + b.x * len)} ${em(lamp.y + b.y * len)})`;
-                beam.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,205,120,0.30), rgba(255,170,70,0.10) 11em, rgba(255,150,40,0) 26em)`;
-                beam.style.opacity = (0.7 + 0.3 * flash).toFixed(3);
-                halo.style.opacity = (0.6 + 0.4 * flash).toFixed(3);
-                halo.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,235,180,0.45), rgba(255,200,120,0) 1.6em)`;
+                beamEl.style.clipPath = `polygon(${em(lamp.x)} ${em(lamp.y)}, ${em(lamp.x + a.x * len)} ${em(lamp.y + a.y * len)}, ${em(lamp.x + b.x * len)} ${em(lamp.y + b.y * len)})`;
+                beamEl.style.background = `radial-gradient(circle at ${em(lamp.x)} ${em(lamp.y)}, rgba(255,235,190,0.32), rgba(255,210,140,0.1) ${(len * 0.5).toFixed(2)}em, rgba(255,200,120,0) ${len}em)`;
+                paint(glowEl, glow);
+                paint(stackGlowEl, stackGlow);
                 stage.style.filter = burst > 0.01 ? `brightness(${(1 + 1.4 * burst).toFixed(2)})` : '';
                 stage.style.transform = quake > 0
                     ? `translate(${(Math.sin(now / 13) * 0.08 * quake).toFixed(3)}em, ${(Math.cos(now / 17) * 0.05 * quake).toFixed(3)}em)`
-                    : thump ? 'translate(0, 0.06em)' : p < 0.04 ? 'translate(-0.04em, 0.025em)' : p < 0.08 ? 'translate(0.025em, -0.015em)' : '';
+                    : '';
             };
 
             let wakeLock = null;
