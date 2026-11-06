@@ -110,34 +110,18 @@
         .sgt { color: #ffe9b8; text-shadow: 0 0 0.25em rgba(255, 200, 120, 0.7); }
         .sgu { color: #ff6a48; text-shadow: 0 0 0.3em #ff4a28, 0 0 0.8em rgba(255, 60, 30, 0.6); }
         .sgr { color: #b8321e; text-shadow: 0 0 0.3em rgba(255, 60, 30, 0.5); }
-        /* the last 2 minutes before a meeting: a big banner in the band under the cave */
-        #banner {
+        /* the last minute: the sign blinks, once a second, between its red and this bright flash */
+        .sgf { color: #fff1e0; text-shadow: 0 0 0.3em #ff4a28, 0 0 0.9em rgba(255, 60, 30, 0.9); }
+        /* the last 10 seconds: a red glow round the edge of the whole screen, lit with the sign */
+        #alarm {
             position: fixed;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-family: Menlo, 'Courier New', monospace;
-            font-weight: 700;
-            color: #ff6a48;
-            text-shadow: 0 0 0.2em #ff4a28, 0 0 0.6em rgba(255, 60, 30, 0.6);
-            animation: pulse 1s ease-in-out infinite;
+            inset: 0;
+            opacity: 0;
+            box-shadow: inset 0 0 12vmin 4vmin rgba(255, 40, 20, 0.85);
+            background: radial-gradient(ellipse at center, rgba(255, 40, 20, 0) 45%, rgba(255, 40, 20, 0.25) 100%);
+            transition: opacity 0.12s;
             pointer-events: none;
         }
-        #banner.on { display: flex; }
-        #banner-title {
-            max-width: 92vw;
-            padding: 0.3em 0.6em;
-            box-sizing: border-box;
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-        }
-        #banner-when { font-size: 0.6em; color: #ffe9b8; }
-        @keyframes pulse { 50% { opacity: 0.55; } }
     </style>
 </head>
 <body>
@@ -145,7 +129,7 @@
         <div id="glow-wrap"><div id="beam"></div><div id="glow"></div><div id="stack-glow"></div></div>
         <pre id="scene"></pre>
     </div>
-    <div id="banner"><div id="banner-title"></div><div id="banner-when"></div></div>
+    <div id="alarm"></div>
     <script>
         // ---------- Geometry. Everything is in cells or in em (a cell is 0.6em x 1.1em). ----------
         const CW = 0.6;
@@ -649,6 +633,10 @@
         const HOUR_MS = 60 * 60000;
         const URGENT_MS = 10 * 60000; // the sign turns red for the last 10 minutes
         const BEEP_MS = 2 * 60000; // one beep 2 minutes before the start
+        const FLASH_MS = 60000; // the sign blinks for the last minute
+        const ALARM_MS = 10000; // the screen glows red for the last 10 seconds
+        // One beat for the sign and the red glow: lit for the first half of each second counting down to the start.
+        const flashOn = (left) => left > 0 && left % 1000 >= 500;
         // The next meeting starting within the hour; it stays up through its first minute ("NOW").
         const nextMeeting = (nowMs, events) =>
             events
@@ -668,17 +656,19 @@
             const mins = Math.ceil((event.start - nowMs) / 60000);
             const start = new Date(event.start);
             const lines = [mins > 0 ? `in ${mins} min` : 'NOW', ...wrapTitle(ascii(event.title), inner)].map((s) => s.padEnd(inner));
-            const urgent = event.start - nowMs <= URGENT_MS;
+            const left = event.start - nowMs;
+            const urgent = left <= URGENT_MS;
+            const flash = left <= FLASH_MS && flashOn(left);
             const edge = '-'.repeat(SIGN.w - 2);
             const top = `- ${pad(start.getHours())}:${pad(start.getMinutes())} ${edge}`.slice(0, SIGN.w - 2);
             Array.from({ length: SIGN.h }, (_, i) => grid[SIGN.r + i].slice(SIGN.c, SIGN.c + SIGN.w)).flat().forEach((cell) => Object.assign(cell, { ch: ' ', cls: '' }));
-            put(grid, SIGN.r, SIGN.c, `.${top}.`, urgent ? 'sgr' : 'sg');
+            put(grid, SIGN.r, SIGN.c, `.${top}.`, flash ? 'sgf' : urgent ? 'sgr' : 'sg');
             lines.forEach((line, i) => {
-                put(grid, SIGN.r + 1 + i, SIGN.c, '| ', urgent ? 'sgr' : 'sg');
-                put(grid, SIGN.r + 1 + i, SIGN.c + 2, line, urgent ? 'sgu' : 'sgt');
-                put(grid, SIGN.r + 1 + i, SIGN.c + SIGN.w - 2, ' |', urgent ? 'sgr' : 'sg');
+                put(grid, SIGN.r + 1 + i, SIGN.c, '| ', flash ? 'sgf' : urgent ? 'sgr' : 'sg');
+                put(grid, SIGN.r + 1 + i, SIGN.c + 2, line, flash ? 'sgf' : urgent ? 'sgu' : 'sgt');
+                put(grid, SIGN.r + 1 + i, SIGN.c + SIGN.w - 2, ' |', flash ? 'sgf' : urgent ? 'sgr' : 'sg');
             });
-            put(grid, SIGN.r + SIGN.h - 1, SIGN.c, `'${edge}'`, urgent ? 'sgr' : 'sg');
+            put(grid, SIGN.r + SIGN.h - 1, SIGN.c, `'${edge}'`, flash ? 'sgf' : urgent ? 'sgr' : 'sg');
         };
 
         // ---------- The date: a plaque set into the ceiling, above where the sign hangs ----------
@@ -885,20 +875,11 @@
             const glowEl = document.getElementById('glow');
             const stackGlowEl = document.getElementById('stack-glow');
 
-            const banner = document.getElementById('banner');
-            const bannerTitle = document.getElementById('banner-title');
-            const bannerWhen = document.getElementById('banner-when');
-            let bannerKey = '';
+            const alarm = document.getElementById('alarm');
 
             const fit = () => {
                 const size = Math.min((window.innerWidth * 0.95) / (COLS * 0.602), (window.innerHeight * 0.9) / (ROWS * CH));
                 stage.style.fontSize = `${size}px`;
-                // The banner fills the empty band under the cave; on a wide screen with no band it overlaps the rail.
-                // The scene is centred: its bottom sits half its height below the middle of the screen.
-                const band = Math.max((window.innerHeight - ROWS * CH * size) / 2, window.innerHeight * 0.18);
-                banner.style.height = `${band}px`;
-                banner.style.fontSize = `${band * 0.36}px`;
-                bannerKey = ''; // re-fit the title on the next frame
             };
 
             // Calendar feeds: Apps Script URLs from #feeds=<url>,<url>, remembered on this device.
@@ -968,22 +949,10 @@
                 }
             };
 
-            // The banner: from 2 minutes before the start, with a seconds countdown, through the "NOW" minute.
-            const showBanner = (meeting, now) => {
+            // The red glow: the last 10 seconds, lit on the same beat as the sign.
+            const showAlarm = (meeting, now) => {
                 const left = meeting ? meeting.start - now : Infinity;
-                const on = left <= BEEP_MS;
-                const secs = Math.ceil(left / 1000);
-                const when = secs > 0 ? `in ${Math.floor(secs / 60)}:${pad(secs % 60)}` : 'NOW';
-                const key = on ? `${meeting.title}|${when}` : '';
-                if (key === bannerKey) return;
-                bannerKey = key;
-                banner.classList.toggle('on', on);
-                if (!on) return;
-                bannerTitle.textContent = meeting.title;
-                // A long title shrinks to fit the width (down to 40%, then it is cut with an ellipsis).
-                const base = parseFloat(banner.style.fontSize) || 40;
-                bannerTitle.style.fontSize = `${Math.max(0.4, Math.min(1, (window.innerWidth * 0.8) / (0.6 * meeting.title.length * base)))}em`;
-                bannerWhen.textContent = `${pad(new Date(meeting.start).getHours())}:${pad(new Date(meeting.start).getMinutes())}  ${when}`;
+                alarm.style.opacity = left > 0 && left <= ALARM_MS ? (flashOn(left) ? '1' : '0.25') : '0';
             };
 
             const em = (v) => `${(v + 2).toFixed(2)}em`;
@@ -1003,7 +972,7 @@
                 lastFrame = t;
                 const now = Date.now();
                 const meeting = nextMeeting(now, calendar.events);
-                showBanner(meeting, now);
+                showAlarm(meeting, now);
                 const frame = renderScene(now, meeting);
                 const html = toHtml(frame.grid);
                 if (html !== lastHtml) {
